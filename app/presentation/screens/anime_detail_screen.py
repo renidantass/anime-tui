@@ -4,7 +4,7 @@ from textual.app import ComposeResult
 from textual.screen import Screen
 from textual.widgets import Header, Footer, Static, Tree
 
-from app.application import get_video_src
+from app.application.anime_service import AnimeService
 from app.presentation.utils.image_cache import get_image
 from app.presentation.view_models import AnimeVM, EpisodeVM
 
@@ -12,8 +12,9 @@ from app.presentation.view_models import AnimeVM, EpisodeVM
 class AnimeDetailScreen(Screen):
     BINDINGS = [("escape", "back", "Voltar")]
 
-    def __init__(self, anime_vm: AnimeVM, *args, **kwargs):
+    def __init__(self, service: AnimeService, anime_vm: AnimeVM, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self._service = service
         self._anime_vm = anime_vm
 
     def compose(self) -> ComposeResult:
@@ -52,7 +53,7 @@ class AnimeDetailScreen(Screen):
         if ep_vm is None:
             return
         try:
-            video_src = get_video_src(ep_vm.link)
+            video_src = self._service.get_video_src(ep_vm.link)
             if video_src:
                 webbrowser.open(video_src)
         except Exception:

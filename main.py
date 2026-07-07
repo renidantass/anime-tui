@@ -1,26 +1,27 @@
 from app.application.anime_service import AnimeService
-from app.application.service_facade import set_service
 from app.infrastructure.sources import SourceDiscovery
 from app.presentation.screens import HomeScreen
 from textual.app import App
 
 
-service = AnimeService(source_discovery=SourceDiscovery())
-set_service(service)
-
-
 class AnimeTUI(App):
+    def __init__(self, service: AnimeService, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._service = service
+
     BINDINGS = [("q", "quit", "Sair")]
 
     def on_mount(self) -> None:
-        self.push_screen(HomeScreen())
+        self._service.init_sources()
+        self.push_screen(HomeScreen(self._service))
 
     def action_quit(self) -> None:
         self.exit()
 
 
 def main():
-    app = AnimeTUI()
+    service = AnimeService(source_discovery=SourceDiscovery())
+    app = AnimeTUI(service=service)
     app.run()
 
 

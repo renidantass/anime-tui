@@ -9,3 +9,10 @@ class Episode:
     video_src: str
     image: str = ''
     date: str = '00/00'
+
+    def has_video(self) -> bool:
+        return bool(self.video_src)
+
+    @property
+    def display_number(self) -> str:
+        return f"Episódio {self.number}"

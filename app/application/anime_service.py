@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from app.application.dtos import AnimeDetail, EpisodeItem, SeasonDetail
+from app.application.dtos import AnimeDetail, AnimeEntry, EpisodeEntry, EpisodeItem, SeasonDetail, SourceEntry, SourceInfo
 from app.application.interfaces import ISourceDiscovery
-from app.application.models import EpisodeEntry, AnimeEntry, SourceInfo, SourceEntry
 from app.domain import Anime, Episode
+
+logger = logging.getLogger(__name__)
 
 
 def _episode_to_item(ep: Episode) -> EpisodeItem:
@@ -30,7 +32,7 @@ class AnimeService:
     def _reset_enabled(self):
         self._enabled: set[str] = set()
         for e in self._sd.get_enabled_entries():
-            self._enabled.add(e.source.identifier)
+            self._enabled.add(e.identifier)
 
     def set_enabled(self, identifier: str, enabled: bool):
         if enabled:
@@ -42,7 +44,7 @@ class AnimeService:
         return identifier in self._enabled
 
     def get_enabled_source_names(self) -> list[str]:
-        return [entry.source.name for entry in self._sd.get_enabled_entries()]
+        return [entry.name for entry in self._sd.get_enabled_entries()]
 
     def get_all_source_entries(self) -> list[SourceEntry]:
         return self._sd.get_all_entries()
@@ -51,7 +53,7 @@ class AnimeService:
         return self._sd.is_available(identifier)
 
     def _get_enabled_list(self) -> list[SourceEntry]:
-        return [e for e in self._sd.get_enabled_entries() if e.source.identifier in self._enabled]
+        return [e for e in self._sd.get_enabled_entries() if e.identifier in self._enabled]
 
     @staticmethod
     def _ep_key(ep: Episode) -> str:
@@ -68,16 +70,18 @@ class AnimeService:
             return []
 
         def fetch(entry: SourceEntry) -> tuple[str, list[Episode]]:
-            return entry.source.name, entry.source.get_last_episodes()
+            reader = self._sd.get_reader(entry.identifier)
+            return entry.name, reader.get_last_episodes() if reader else []
 
         with ThreadPoolExecutor(max_workers=len(sources)) as ex:
             futures = {ex.submit(fetch, e): e for e in sources}
             for future in as_completed(futures):
                 entry = futures[future]
-                name = entry.source.name
+                name = entry.name
                 try:
                     _, episodes = future.result()
-                except Exception:
+                except Exception as e:
+                    logger.warning("Falha ao obter episódios de %s: %s", name, e)
                     continue
                 for ep in episodes:
                     key = self._ep_key(ep)
@@ -89,28 +93,30 @@ class AnimeService:
                         )
                     if not any(s.name == name for s in entries[key].sources):
                         entries[key].sources.append(
-                            SourceInfo(name=name, video_src=ep.video_src, link=ep.link, color=entry.source.color)
+                            SourceInfo(name=name, video_src=ep.video_src, link=ep.link, color=entry.color)
                         )
 
         return list(entries.values())
 
     def search_by(self, name: str) -> list[AnimeEntry]:
         entries: dict[str, AnimeEntry] = {}
-        sources = [e for e in self._get_enabled_list() if e.source.has_search]
+        sources = [e for e in self._get_enabled_list() if e.has_search]
         if not sources:
             return []
 
         def fetch(entry: SourceEntry) -> tuple[str, list[Anime]]:
-            return entry.source.name, entry.source.search_by(name)
+            reader = self._sd.get_reader(entry.identifier)
+            return entry.name, reader.search_by(name) if reader else []
 
         with ThreadPoolExecutor(max_workers=len(sources)) as ex:
             futures = {ex.submit(fetch, e): e for e in sources}
             for future in as_completed(futures):
                 entry = futures[future]
-                source_name = entry.source.name
+                source_name = entry.name
                 try:
                     _, animes = future.result()
-                except Exception:
+                except Exception as e:
+                    logger.warning("Falha ao buscar em %s: %s", source_name, e)
                     continue
                 for anime in animes:
                     key = self._anime_key(anime)
@@ -122,20 +128,22 @@ class AnimeService:
                         )
                     if not any(s.name == source_name for s in entries[key].sources):
                         entries[key].sources.append(
-                            SourceInfo(name=source_name, video_src="", link=anime.link, color=entry.source.color)
+                            SourceInfo(name=source_name, video_src="", link=anime.link, color=entry.color)
                         )
 
         return list(entries.values())
 
     def get_anime_details(self, link: str) -> AnimeDetail:
-        sources = [e for e in self._get_enabled_list() if e.source.has_details]
+        sources = [e for e in self._get_enabled_list() if e.has_details]
         if not sources:
             return AnimeDetail(title="", rating="", link=link)
 
         def fetch(entry: SourceEntry) -> Anime | None:
             try:
-                return entry.source.get_anime_details(link)
-            except Exception:
+                reader = self._sd.get_reader(entry.identifier)
+                return reader.get_anime_details(link) if reader else None
+            except Exception as e:
+                logger.warning("Falha ao obter detalhes de %s: %s", entry.name, e)
                 return None
 
         with ThreadPoolExecutor(max_workers=len(sources)) as ex:
@@ -173,13 +181,15 @@ class AnimeService:
 
         def fetch(entry: SourceEntry) -> str:
             try:
-                return entry.source.get_video_src(episode_link)
-            except Exception:
+                reader = self._sd.get_reader(entry.identifier)
+                return reader.get_video_src(episode_link) if reader else ""
+            except Exception as e:
+                logger.warning("Falha ao obter video_src de %s: %s", entry.name, e)
                 return ""
 
         if preferred_source:
             for e in sources:
-                if e.source.name == preferred_source:
+                if e.name == preferred_source:
                     result = fetch(e)
                     if result:
                         return result

@@ -6,12 +6,8 @@ from textual.app import ComposeResult
 from textual.screen import Screen
 from textual.widgets import Header, Footer, Static, ListView, ListItem, LoadingIndicator
 
-from app.application import (
-    EpisodeEntry,
-    init_sources,
-    get_last_episodes,
-    get_video_src,
-)
+from app.application import EpisodeEntry
+from app.application.anime_service import AnimeService
 from app.presentation.screens.search_screen import SearchScreen
 from app.presentation.screens.source_select_screen import SourceSelectScreen
 from app.presentation.screens.source_manager_screen import SourceManagerScreen
@@ -20,6 +16,10 @@ from app.presentation.utils.badge import badge_tag
 
 
 class HomeScreen(Screen):
+    def __init__(self, service: AnimeService, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._service = service
+
     BINDINGS = [
         ("s", "search", "Buscar Anime"),
         ("r", "refresh", "Atualizar"),
@@ -43,14 +43,14 @@ class HomeScreen(Screen):
     def on_mount(self) -> None:
         self._all_entries: list[EpisodeEntry] = []
         self._filter_query: str = ""
-        init_sources()
+        self._service.init_sources()
         self._load_episodes()
 
     def action_search(self) -> None:
-        self.app.push_screen(SearchScreen())
+        self.app.push_screen(SearchScreen(self._service))
 
     def action_sources(self) -> None:
-        self.app.push_screen(SourceManagerScreen())
+        self.app.push_screen(SourceManagerScreen(self._service))
 
     def action_refresh(self) -> None:
         self.query_one("#loading", LoadingIndicator).display = True
@@ -153,7 +153,7 @@ class HomeScreen(Screen):
 
     def _load_episodes(self) -> None:
         try:
-            entries = get_last_episodes()
+            entries = self._service.get_last_episodes()
             self._all_entries = entries
             list_view = self.query_one("#episodes-list", ListView)
             list_view.clear()
@@ -185,7 +185,7 @@ class HomeScreen(Screen):
                 webbrowser.open(src.video_src)
             else:
                 try:
-                    vs = get_video_src(src.link, src.name)
+                    vs = self._service.get_video_src(src.link, src.name)
                     if vs:
                         webbrowser.open(vs)
                 except Exception:
@@ -196,7 +196,7 @@ class HomeScreen(Screen):
                     webbrowser.open(selected.video_src)
                 else:
                     try:
-                        vs = get_video_src(selected.link, selected.name)
+                        vs = self._service.get_video_src(selected.link, selected.name)
                         if vs:
                             webbrowser.open(vs)
                     except Exception:

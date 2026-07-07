@@ -1,6 +1,10 @@
 from abc import ABC, abstractmethod
+from typing import TYPE_CHECKING
 
-from app.application.models import SourceEntry
+from app.application.dtos import SourceEntry
+
+if TYPE_CHECKING:
+    from app.application.interfaces import IAnimeFeedReader
 
 
 class ISourceDiscovery(ABC):
@@ -18,4 +22,8 @@ class ISourceDiscovery(ABC):
 
     @abstractmethod
     def is_available(self, identifier: str) -> bool:
+        pass
+
+    @abstractmethod
+    def get_reader(self, identifier: str) -> IAnimeFeedReader | None:
         pass

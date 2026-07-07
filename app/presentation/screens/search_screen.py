@@ -4,11 +4,8 @@ from textual.app import ComposeResult
 from textual.screen import Screen
 from textual.widgets import Header, Footer, ListView, ListItem, Input, Static, LoadingIndicator
 
-from app.application import (
-    AnimeEntry,
-    search_by,
-    get_anime_details,
-)
+from app.application import AnimeEntry
+from app.application.anime_service import AnimeService
 from app.presentation.presenters.anime_presenter import AnimePresenter
 from app.presentation.screens.anime_detail_screen import AnimeDetailScreen
 from app.presentation.utils.image_cache import get_image
@@ -16,6 +13,10 @@ from app.presentation.utils.badge import badge_tag
 
 
 class SearchScreen(Screen):
+    def __init__(self, service: AnimeService, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._service = service
+
     BINDINGS = [("escape", "back", "Voltar")]
 
     def compose(self) -> ComposeResult:
@@ -73,7 +74,7 @@ class SearchScreen(Screen):
         list_view.clear()
 
         try:
-            entries = search_by(name.strip())
+            entries = self._service.search_by(name.strip())
             list_view.clear()
             if not entries:
                 list_view.append(
@@ -106,10 +107,10 @@ class SearchScreen(Screen):
         link = entry.sources[0].link if entry.sources else ""
         if not link:
             return
-        anime = get_anime_details(link)
+        anime = self._service.get_anime_details(link)
         if anime.title:
             anime_vm = AnimePresenter.present(anime)
-            self.app.push_screen(AnimeDetailScreen(anime_vm))
+            self.app.push_screen(AnimeDetailScreen(self._service, anime_vm))
 
     def on_list_view_selected(self, event: ListView.Selected) -> None:
         entry: AnimeEntry | None = event.item.meta.get("entry")
