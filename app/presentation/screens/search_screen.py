@@ -1,21 +1,35 @@
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
+
 from rich.table import Table
 from rich.text import Text
 from textual.app import ComposeResult
 from textual.screen import Screen
 from textual.widgets import Header, Footer, ListView, ListItem, Input, Static, LoadingIndicator
 
-from app.application import AnimeEntry
+from app.application import AnimeEntry, SourceInfo
 from app.application.anime_service import AnimeService
 from app.presentation.presenters.anime_presenter import AnimePresenter
 from app.presentation.screens.anime_detail_screen import AnimeDetailScreen
+from app.presentation.screens.source_select_screen import SourceSelectScreen
 from app.presentation.utils.image_cache import get_image
 from app.presentation.utils.badge import badge_tag
 
 
 class SearchScreen(Screen):
+    DEFAULT_CSS = """
+    #search-loading {
+        height: 1;
+        width: 100%;
+        content-align: center middle;
+    }
+    """
+
     def __init__(self, service: AnimeService, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._service = service
+        self._debounce_timer = None
+        self._search_history: list[str] = []
 
     BINDINGS = [("escape", "back", "Voltar")]
 
@@ -31,19 +45,52 @@ class SearchScreen(Screen):
 
     def on_mount(self) -> None:
         self.query_one("#search-input", Input).focus()
-        self._search_query = ""
 
     def action_back(self) -> None:
         self.app.pop_screen()
 
+    def on_input_changed(self, event: Input.Changed) -> None:
+        if self._debounce_timer:
+            self._debounce_timer.reset()
+
+        if not event.value.strip():
+            self._show_suggestions()
+            return
+
+        self._debounce_timer = self.set_timer(0.3, self._do_search)
+
     def on_input_submitted(self, event: Input.Submitted) -> None:
-        self._search_query = event.value
+        if self._debounce_timer:
+            self._debounce_timer.reset()
+        if event.value.strip():
+            self._do_search()
+
+    def on_input_focused(self, event: Input.Focused) -> None:
+        inp = self.query_one("#search-input", Input)
+        if not inp.value.strip():
+            self._show_suggestions()
+
+    def _show_suggestions(self) -> None:
+        list_view = self.query_one("#results-list", ListView)
+        list_view.clear()
+        if not self._search_history:
+            list_view.append(
+                ListItem(Static("[dim]Digite para buscar...[/]"))
+            )
+            return
+        for term in reversed(self._search_history):
+            item = ListItem(Static(f"\u23ce {term}"))
+            item.meta = {"suggestion": term}
+            list_view.append(item)
+
+    def _do_search(self) -> None:
+        inp = self.query_one("#search-input", Input)
+        query = inp.value.strip()
+        if not query:
+            return
         self.query_one("#search-loading", LoadingIndicator).display = True
         self.query_one("#results-list", ListView).clear()
-        self.call_after_refresh(self._do_search)
-
-    def _do_search(self):
-        self._search(self._search_query)
+        asyncio.create_task(self._search(query))
 
     def _build_item(self, entry: AnimeEntry) -> Static:
         ansi = get_image(entry.image, max_width=30) if entry.image else None
@@ -66,7 +113,7 @@ class SearchScreen(Screen):
 
         return Static(table)
 
-    def _search(self, name: str) -> None:
+    async def _search(self, name: str) -> None:
         if not name.strip():
             return
 
@@ -74,7 +121,7 @@ class SearchScreen(Screen):
         list_view.clear()
 
         try:
-            entries = self._service.search_by(name.strip())
+            entries = await asyncio.to_thread(self._service.search_by, name.strip())
             list_view.clear()
             if not entries:
                 list_view.append(
@@ -83,13 +130,14 @@ class SearchScreen(Screen):
                 self.query_one("#search-loading", LoadingIndicator).display = False
                 return
 
-            from concurrent.futures import ThreadPoolExecutor, as_completed
+            if name.strip() not in self._search_history:
+                self._search_history.append(name.strip())
+
             urls = [(entry.image, 30) for entry in entries if entry.image]
             if urls:
                 with ThreadPoolExecutor(max_workers=8) as ex:
-                    futures = {ex.submit(get_image, url, w): url for url, w in urls}
-                    for future in as_completed(futures):
-                        pass
+                    futures = [ex.submit(get_image, url, w) for url, w in urls]
+                    await asyncio.gather(*(asyncio.wrap_future(f) for f in futures))
 
             for entry in entries:
                 content = self._build_item(entry)
@@ -104,15 +152,35 @@ class SearchScreen(Screen):
             list_view.append(ListItem(Static(f"[red]Erro na busca: {e}[/]")))
 
     def _open_anime(self, entry: AnimeEntry) -> None:
-        link = entry.sources[0].link if entry.sources else ""
-        if not link:
+        if not entry.sources:
             return
-        anime = self._service.get_anime_details(link)
-        if anime.title:
-            anime_vm = AnimePresenter.present(anime)
-            self.app.push_screen(AnimeDetailScreen(self._service, anime_vm))
+
+        def _do_open(source: SourceInfo) -> None:
+            self.loading = True
+            asyncio.create_task(self._open_anime_details(source))
+
+        if len(entry.sources) == 1:
+            _do_open(entry.sources[0])
+        else:
+            self.app.push_screen(SourceSelectScreen(entry.sources, _do_open))
+
+    async def _open_anime_details(self, source: SourceInfo) -> None:
+        try:
+            anime = await asyncio.to_thread(self._service.get_anime_details, source.link)
+            self.loading = False
+            if anime.title:
+                anime_vm = AnimePresenter.present(anime)
+                self.app.push_screen(AnimeDetailScreen(self._service, anime_vm))
+        except Exception:
+            self.loading = False
 
     def on_list_view_selected(self, event: ListView.Selected) -> None:
+        suggestion = event.item.meta.get("suggestion")
+        if suggestion:
+            inp = self.query_one("#search-input", Input)
+            inp.value = suggestion
+            self._do_search()
+            return
         entry: AnimeEntry | None = event.item.meta.get("entry")
         if entry:
             self._open_anime(entry)
