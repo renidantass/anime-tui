@@ -12,7 +12,6 @@ class AnimeTUI(App):
     BINDINGS = [("q", "quit", "Sair")]
 
     def on_mount(self) -> None:
-        self._service.init_sources()
         self.push_screen(HomeScreen(self._service))
 
     def action_quit(self) -> None:

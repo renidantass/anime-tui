@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib
 import logging
 import pkgutil
 import threading
@@ -10,6 +11,10 @@ import requests
 from app.application.interfaces import ISourceDiscovery
 from app.application.dtos import SourceEntry
 from app.infrastructure.sources._base import AnimeSource
+
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+}
 
 if TYPE_CHECKING:
     from app.application.interfaces import IAnimeFeedReader
@@ -28,13 +33,13 @@ class SourceDiscovery(ISourceDiscovery):
         self._readers = {}
 
         module_names = [
-            name for _, name, _ in pkgutil.iter_modules(__path__)
+            name for _, name, _ in pkgutil.iter_modules(importlib.import_module('app.infrastructure.sources').__path__)
             if not name.startswith("_")
         ]
 
         for mod_name in module_names:
             try:
-                mod = __import__(f"app.infrastructure.sources.{mod_name}", fromlist=[mod_name])
+                mod = importlib.import_module(f"app.infrastructure.sources.{mod_name}")
             except Exception as e:
                 logger.warning("Falha ao importar %s: %s", mod_name, e)
                 continue
@@ -77,7 +82,7 @@ class SourceDiscovery(ISourceDiscovery):
                 if not base_url:
                     continue
                 try:
-                    resp = requests.get(base_url, timeout=8)
+                    resp = requests.get(base_url, timeout=8, headers=HEADERS)
                     if resp.status_code != 200:
                         entry.available = False
                         entry.error = f"HTTP {resp.status_code}"

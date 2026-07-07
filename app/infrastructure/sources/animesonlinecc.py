@@ -8,6 +8,10 @@ from bs4 import BeautifulSoup
 from app.domain import Anime, Episode, Season
 from app.infrastructure.sources._base import AnimeSource
 
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+}
+
 
 class AnimesOnlineCC(AnimeSource):
     name = "AnimesOnlineCC"
@@ -29,7 +33,7 @@ class AnimesOnlineCC(AnimeSource):
         return separated_title[-1].strip() or '0'
 
     def get_video_src(self, episode_link: str) -> str:
-        response = requests.get(episode_link)
+        response = requests.get(episode_link, headers=HEADERS)
         soup = BeautifulSoup(response.text, self.default_analyzer)
         playex = soup.find('div', 'playex')
         iframe = playex.iframe
@@ -38,7 +42,7 @@ class AnimesOnlineCC(AnimeSource):
     def get_last_episodes(self) -> list[Episode]:
         retrieved: list[Episode] = []
 
-        response = requests.get(self.urls["last_episodes"])
+        response = requests.get(self.urls["last_episodes"], headers=HEADERS)
         soup = BeautifulSoup(response.text, self.default_analyzer)
         episodes = soup.find_all("article", "episodes")
 
@@ -58,7 +62,7 @@ class AnimesOnlineCC(AnimeSource):
     def search_by(self, name: str) -> list[Anime]:
         retrieved: list[Anime] = []
 
-        response = requests.get(f"{self.base_url}/?s={name}&post_type=animes")
+        response = requests.get(f"{self.base_url}/?s={name}&post_type=animes", headers=HEADERS)
         soup = BeautifulSoup(response.text, self.default_analyzer)
 
         for article in soup.find_all("article", "tvshows"):
@@ -77,7 +81,7 @@ class AnimesOnlineCC(AnimeSource):
         return retrieved
 
     def get_anime_details(self, link: str) -> Anime:
-        response = requests.get(link)
+        response = requests.get(link, headers=HEADERS)
         soup = BeautifulSoup(response.text, self.default_analyzer)
 
         title_elem = soup.find('h1')

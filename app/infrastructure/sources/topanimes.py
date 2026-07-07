@@ -8,6 +8,10 @@ from bs4 import BeautifulSoup
 from app.domain import Anime, Episode, Season
 from app.infrastructure.sources._base import AnimeSource
 
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+}
+
 
 class Topanimes(AnimeSource):
     name = "Topanimes"
@@ -29,7 +33,7 @@ class Topanimes(AnimeSource):
     def get_last_episodes(self) -> list[Episode]:
         retrieved: list[Episode] = []
 
-        response = requests.get(self.base_url)
+        response = requests.get(self.base_url, headers=HEADERS)
         soup = BeautifulSoup(response.text, self.default_analyzer)
 
         for article in soup.find_all('article', class_='episodes'):
@@ -75,7 +79,7 @@ class Topanimes(AnimeSource):
     def search_by(self, name: str) -> list[Anime]:
         retrieved: list[Anime] = []
 
-        response = requests.get(f"{self.base_url}/search/{name}")
+        response = requests.get(f"{self.base_url}/search/{name}", headers=HEADERS)
         soup = BeautifulSoup(response.text, self.default_analyzer)
 
         for article in soup.find_all('article'):
@@ -97,7 +101,7 @@ class Topanimes(AnimeSource):
         return retrieved
 
     def get_anime_details(self, link: str) -> Anime:
-        response = requests.get(link)
+        response = requests.get(link, headers=HEADERS)
         soup = BeautifulSoup(response.text, self.default_analyzer)
 
         title_elem = soup.find('h1')

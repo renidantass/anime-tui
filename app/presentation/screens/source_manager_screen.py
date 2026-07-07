@@ -18,7 +18,7 @@ class SourceManagerScreen(Screen):
         with Static(id="sources-container"):
             for entry in self._service.get_all_source_entries():
                 avail = self._service.is_source_available(entry.identifier)
-                status = "[green]● ONLINE[/]" if avail else "[red]● OFFLINE[/]"
+                status = "[white on #27ae60] ONLINE [/]" if avail else "[white on #c0392b] OFFLINE [/]"
                 label = f"{entry.name} {status}"
                 if not avail and entry.error:
                     label += f" [dim]({entry.error})[/]"

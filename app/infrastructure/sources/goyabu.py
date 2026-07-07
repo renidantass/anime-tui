@@ -9,6 +9,10 @@ from bs4 import BeautifulSoup
 from app.domain import Anime, Episode
 from app.infrastructure.sources._base import AnimeSource
 
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+}
+
 
 class Goyabu(AnimeSource):
     name = "Goyabu"
@@ -32,7 +36,7 @@ class Goyabu(AnimeSource):
             return ''
 
     def get_video_src(self, episode_link: str) -> str:
-        response = requests.get(episode_link)
+        response = requests.get(episode_link, headers=HEADERS)
         soup = BeautifulSoup(response.text, self.default_analyzer)
         tab = soup.find('button', class_='player-tab')
         if tab:
@@ -44,7 +48,7 @@ class Goyabu(AnimeSource):
     def get_last_episodes(self) -> list[Episode]:
         retrieved: list[Episode] = []
 
-        response = requests.get(f"{self.base_url}/inicio")
+        response = requests.get(f"{self.base_url}/inicio", headers=HEADERS)
         soup = BeautifulSoup(response.text, self.default_analyzer)
 
         for article in soup.find_all('article', class_='boxEP'):
@@ -76,7 +80,7 @@ class Goyabu(AnimeSource):
     def search_by(self, name: str) -> list[Anime]:
         retrieved: list[Anime] = []
 
-        response = requests.get(f"{self.base_url}/search/{name}")
+        response = requests.get(f"{self.base_url}/search/{name}", headers=HEADERS)
         soup = BeautifulSoup(response.text, self.default_analyzer)
 
         for article in soup.find_all('article', class_='boxAN'):
@@ -99,7 +103,7 @@ class Goyabu(AnimeSource):
         return retrieved
 
     def get_anime_details(self, link: str) -> Anime:
-        response = requests.get(link)
+        response = requests.get(link, headers=HEADERS)
         soup = BeautifulSoup(response.text, self.default_analyzer)
 
         title_elem = soup.find('h1')

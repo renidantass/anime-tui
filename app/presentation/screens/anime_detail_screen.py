@@ -1,3 +1,4 @@
+import asyncio
 import webbrowser
 
 from textual.app import ComposeResult
@@ -52,9 +53,14 @@ class AnimeDetailScreen(Screen):
         ep_vm: EpisodeVM | None = event.node.data
         if ep_vm is None:
             return
+        self.loading = True
+        asyncio.create_task(self._fetch_video(ep_vm.link))
+
+    async def _fetch_video(self, link: str) -> None:
         try:
-            video_src = self._service.get_video_src(ep_vm.link)
+            video_src = await asyncio.to_thread(self._service.get_video_src, link)
+            self.loading = False
             if video_src:
                 webbrowser.open(video_src)
         except Exception:
-            pass
+            self.loading = False

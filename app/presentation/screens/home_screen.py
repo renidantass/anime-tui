@@ -1,4 +1,6 @@
+import asyncio
 import webbrowser
+from concurrent.futures import ThreadPoolExecutor
 
 from rich.table import Table
 from rich.text import Text
@@ -6,7 +8,7 @@ from textual.app import ComposeResult
 from textual.screen import Screen
 from textual.widgets import Header, Footer, Static, ListView, ListItem, LoadingIndicator
 
-from app.application import EpisodeEntry
+from app.application import EpisodeEntry, SourceInfo
 from app.application.anime_service import AnimeService
 from app.presentation.screens.search_screen import SearchScreen
 from app.presentation.screens.source_select_screen import SourceSelectScreen
@@ -16,6 +18,14 @@ from app.presentation.utils.badge import badge_tag
 
 
 class HomeScreen(Screen):
+    DEFAULT_CSS = """
+    #loading {
+        height: 1;
+        width: 100%;
+        content-align: center middle;
+    }
+    """
+
     def __init__(self, service: AnimeService, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._service = service
@@ -40,11 +50,22 @@ class HomeScreen(Screen):
         yield ListView(id="episodes-list")
         yield Footer()
 
-    def on_mount(self) -> None:
+    async def on_mount(self) -> None:
         self._all_entries: list[EpisodeEntry] = []
         self._filter_query: str = ""
-        self._service.init_sources()
-        self._load_episodes()
+        self.query_one("#loading", LoadingIndicator).display = True
+        self.query_one("#status", Static).update("[yellow]Carregando fontes...[/]")
+        asyncio.create_task(self._initial_load())
+
+    async def _initial_load(self) -> None:
+        try:
+            await asyncio.to_thread(self._service.init_sources)
+        except Exception as e:
+            self.query_one("#loading", LoadingIndicator).display = False
+            self.query_one("#status", Static).update(f"[red]Erro ao carregar fontes: {e}[/]")
+            return
+        self.query_one("#status", Static).update("[yellow]Carregando episódios...[/]")
+        await self._load_episodes()
 
     def action_search(self) -> None:
         self.app.push_screen(SearchScreen(self._service))
@@ -54,9 +75,9 @@ class HomeScreen(Screen):
 
     def action_refresh(self) -> None:
         self.query_one("#loading", LoadingIndicator).display = True
-        self.query_one("#status", Static).update("[dim]Atualizando...[/]")
+        self.query_one("#status", Static).update("[yellow]Atualizando...[/]")
         self.query_one("#episodes-list", ListView).clear()
-        self.call_after_refresh(self._load_episodes)
+        asyncio.create_task(self._load_episodes())
 
     def action_filter(self) -> None:
         label = self.query_one("#filter-label", Static)
@@ -151,20 +172,18 @@ class HomeScreen(Screen):
 
         return Static(table)
 
-    def _load_episodes(self) -> None:
+    async def _load_episodes(self) -> None:
         try:
-            entries = self._service.get_last_episodes()
+            entries = await asyncio.to_thread(self._service.get_last_episodes)
             self._all_entries = entries
             list_view = self.query_one("#episodes-list", ListView)
             list_view.clear()
 
-            from concurrent.futures import ThreadPoolExecutor, as_completed
             urls = [(entry.image, 40) for entry in entries if entry.image]
             if urls:
                 with ThreadPoolExecutor(max_workers=8) as ex:
-                    futures = {ex.submit(get_image, url, w): url for url, w in urls}
-                    for future in as_completed(futures):
-                        pass
+                    futures = [ex.submit(get_image, url, w) for url, w in urls]
+                    await asyncio.gather(*(asyncio.wrap_future(f) for f in futures))
 
             self._rebuild_list(entries)
             self.query_one("#loading", LoadingIndicator).display = False
@@ -184,27 +203,28 @@ class HomeScreen(Screen):
             if src.video_src:
                 webbrowser.open(src.video_src)
             else:
-                try:
-                    vs = self._service.get_video_src(src.link, src.name)
-                    if vs:
-                        webbrowser.open(vs)
-                except Exception:
-                    pass
+                self.loading = True
+                asyncio.create_task(self._fetch_and_open(src))
         elif len(entry.sources) > 1:
             def do_open(selected):
                 if selected.video_src:
                     webbrowser.open(selected.video_src)
                 else:
-                    try:
-                        vs = self._service.get_video_src(selected.link, selected.name)
-                        if vs:
-                            webbrowser.open(vs)
-                    except Exception:
-                        pass
+                    self.loading = True
+                    asyncio.create_task(self._fetch_and_open(selected))
 
             self.app.push_screen(
                 SourceSelectScreen(entry.sources, do_open)
             )
+
+    async def _fetch_and_open(self, src: SourceInfo) -> None:
+        try:
+            vs = await asyncio.to_thread(self._service.get_video_src, src.link, src.name)
+            self.loading = False
+            if vs:
+                webbrowser.open(vs)
+        except Exception:
+            self.loading = False
 
     def on_list_view_selected(self, event: ListView.Selected) -> None:
         entry: EpisodeEntry | None = event.item.meta.get("entry")
