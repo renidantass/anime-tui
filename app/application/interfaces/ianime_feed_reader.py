@@ -9,5 +9,5 @@ class IAnimeFeedReader(ABC):
         pass
 
     @abstractmethod
-    def search_by(self, name: str) -> Anime:
+    def search_by(self, name: str) -> list[Anime]:
         pass

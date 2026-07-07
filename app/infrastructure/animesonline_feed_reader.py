@@ -1,7 +1,7 @@
 import requests
 
 from app.application.interfaces import IAnimeFeedReader
-from app.domain import Anime, Episode, Season
+from app.domain import Anime, Episode
 from bs4 import BeautifulSoup
 
 
@@ -9,7 +9,8 @@ class AnimesOnlineFeedReader(IAnimeFeedReader):
     default_analyzer = 'lxml'
 
     urls = {
-        "last_episodes": "https://animesonlinecc.to/episodio/"
+        "last_episodes": "https://animesonlinecc.to/episodio/",
+        "search": "https://animesonlinecc.to/search"
     }
 
     def __get_episode_number(self, title) -> str:
@@ -20,7 +21,7 @@ class AnimesOnlineFeedReader(IAnimeFeedReader):
             separated_title = title.rpartition(episode_separator)
             episode_number = separated_title[-1]
             return episode_number.strip()
-        
+
         return episode_number
 
     def get_video_src(self, episode_link: str) -> str:
@@ -33,7 +34,7 @@ class AnimesOnlineFeedReader(IAnimeFeedReader):
         return iframe['src']
 
     def get_last_episodes(self) -> list[Episode]:
-        retrieved_episodes = []
+        retrieved_episodes: list[Episode] = []
 
         response = requests.get(self.urls["last_episodes"])
         soup = BeautifulSoup(response.text, self.default_analyzer)
@@ -49,8 +50,28 @@ class AnimesOnlineFeedReader(IAnimeFeedReader):
 
             retrieved_episode = Episode(episode_number, raw_title, episode_link, video_src)
             retrieved_episodes.append(retrieved_episode)
-        
+
         return retrieved_episodes
-    
-    def search_by(self, name: str) -> Anime:
-        raise NotImplementedError()
+
+    def search_by(self, name: str) -> list[Anime]:
+        retrieved_animes: list[Anime] = []
+        url = f"{self.urls["search"]}/{name}"
+
+        response = requests.get(url)
+        soup = BeautifulSoup(response.text, self.default_analyzer)
+
+        articles = soup.find_all("article", "tvshows")
+
+        for article in articles:
+            poster = article.find("div", "poster")
+            rating = poster.find("div", "rating").get_text()
+
+            data = article.find("div", "data")
+            title = data.h3
+            link = title.a["href"]
+            raw_title = title.get_text().strip()
+
+            retrieved_anime = Anime(title=raw_title, rating=rating, link=link)
+            retrieved_animes.append(retrieved_anime)
+
+        return retrieved_animes

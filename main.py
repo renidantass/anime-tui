@@ -4,7 +4,7 @@ from app.infrastructure import AnimesOnlineFeedReader
 def main():
     animes_online = AnimesOnlineFeedReader()
     service = AnimeService(animes_online)
-    episodes = service.get_last_episodes()
+    episodes = service.search_by("Naruto")
 
     print(episodes)
 
