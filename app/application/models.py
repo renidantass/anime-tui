@@ -1,5 +1,13 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.application.interfaces import IAnimeFeedReader
+
+
 class SourceEntry:
-    def __init__(self, source, available: bool = True, error: str = ""):
+    def __init__(self, source: IAnimeFeedReader, available: bool = True, error: str = ""):
         self.source = source
         self.available = available
         self.error = error

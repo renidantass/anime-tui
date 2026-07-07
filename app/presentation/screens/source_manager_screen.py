@@ -3,7 +3,6 @@ from textual.screen import Screen
 from textual.widgets import Header, Footer, Static, Checkbox
 
 from app.application import (
-    get_enabled_source_names,
     is_enabled,
     set_enabled,
     get_all_source_entries,
@@ -20,7 +19,7 @@ class SourceManagerScreen(Screen):
         with Static(id="sources-container"):
             for entry in get_all_source_entries():
                 avail = is_source_available(entry.source.identifier)
-                status = f"[green]● ONLINE[/]" if avail else f"[red]● OFFLINE[/]"
+                status = "[green]● ONLINE[/]" if avail else "[red]● OFFLINE[/]"
                 name = f"{entry.source.name} {status}"
                 if not avail and entry.error:
                     name += f" [dim]({entry.error})[/]"

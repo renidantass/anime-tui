@@ -9,6 +9,7 @@ from app.application import (
     search_by,
     get_anime_details,
 )
+from app.presentation.presenters.anime_presenter import AnimePresenter
 from app.presentation.screens.anime_detail_screen import AnimeDetailScreen
 from app.presentation.utils.image_cache import get_image
 from app.presentation.utils.badge import badge_tag
@@ -107,7 +108,8 @@ class SearchScreen(Screen):
             return
         anime = get_anime_details(link)
         if anime.title:
-            self.app.push_screen(AnimeDetailScreen(anime))
+            anime_vm = AnimePresenter.present(anime)
+            self.app.push_screen(AnimeDetailScreen(anime_vm))
 
     def on_list_view_selected(self, event: ListView.Selected) -> None:
         entry: AnimeEntry | None = event.item.meta.get("entry")

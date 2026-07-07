@@ -1,5 +1,12 @@
+from app.application.anime_service import AnimeService
+from app.application.service_facade import set_service
+from app.infrastructure.sources import SourceDiscovery
 from app.presentation.screens import HomeScreen
 from textual.app import App
+
+
+service = AnimeService(source_discovery=SourceDiscovery())
+set_service(service)
 
 
 class AnimeTUI(App):

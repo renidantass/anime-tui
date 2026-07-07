@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import io
-import math
 from dataclasses import dataclass
 
 import requests

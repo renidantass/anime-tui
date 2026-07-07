@@ -1,10 +1,10 @@
-from app.domain import Episode
+from app.application.dtos import EpisodeItem
 from app.presentation.view_models import EpisodeVM
 
 
 class EpisodePresenter:
     @staticmethod
-    def present(episode: Episode) -> EpisodeVM:
+    def present(episode: EpisodeItem) -> EpisodeVM:
         return EpisodeVM(
             number=episode.number,
             title=episode.title,
@@ -15,5 +15,5 @@ class EpisodePresenter:
         )
 
     @staticmethod
-    def present_many(episodes: list[Episode]) -> list[EpisodeVM]:
+    def present_many(episodes: list[EpisodeItem]) -> list[EpisodeVM]:
         return [EpisodePresenter.present(ep) for ep in episodes]

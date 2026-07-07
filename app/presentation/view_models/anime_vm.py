@@ -1,5 +1,7 @@
 from dataclasses import dataclass
 
+from app.presentation.view_models.season_vm import SeasonVM
+
 
 @dataclass(slots=True)
 class AnimeVM:
@@ -8,6 +10,7 @@ class AnimeVM:
     link: str
     image: str = ''
     description: str | None = None
+    seasons: list[SeasonVM] | None = None
 
     @property
     def display_title(self) -> str:

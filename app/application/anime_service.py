@@ -2,40 +2,34 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+from app.application.dtos import AnimeDetail, EpisodeItem, SeasonDetail
 from app.application.interfaces import ISourceDiscovery
 from app.application.models import EpisodeEntry, AnimeEntry, SourceInfo, SourceEntry
 from app.domain import Anime, Episode
 
 
-_INSTANCE: AnimeService | None = None
-
-
-def get_service() -> AnimeService:
-    global _INSTANCE
-    if _INSTANCE is None:
-        _INSTANCE = AnimeService()
-        _INSTANCE.init_sources()
-    return _INSTANCE
+def _episode_to_item(ep: Episode) -> EpisodeItem:
+    return EpisodeItem(
+        number=ep.number,
+        title=ep.title,
+        link=ep.link,
+        video_src=ep.video_src,
+        image=ep.image,
+        date=ep.date,
+    )
 
 
 class AnimeService:
-    def __init__(self, source_discovery: ISourceDiscovery | None = None):
+    def __init__(self, source_discovery: ISourceDiscovery):
         self._sd = source_discovery
 
-    @property
-    def sd(self) -> ISourceDiscovery:
-        if self._sd is None:
-            from app.infrastructure.sources import SourceDiscovery
-            self._sd = SourceDiscovery()
-        return self._sd
-
     def init_sources(self):
-        self.sd.discover()
+        self._sd.discover()
         self._reset_enabled()
 
     def _reset_enabled(self):
         self._enabled: set[str] = set()
-        for e in self.sd.get_enabled_entries():
+        for e in self._sd.get_enabled_entries():
             self._enabled.add(e.source.identifier)
 
     def set_enabled(self, identifier: str, enabled: bool):
@@ -48,16 +42,16 @@ class AnimeService:
         return identifier in self._enabled
 
     def get_enabled_source_names(self) -> list[str]:
-        return [entry.source.name for entry in self.sd.get_enabled_entries()]
+        return [entry.source.name for entry in self._sd.get_enabled_entries()]
 
     def get_all_source_entries(self) -> list[SourceEntry]:
-        return self.sd.get_all_entries()
+        return self._sd.get_all_entries()
 
     def is_source_available(self, identifier: str) -> bool:
-        return self.sd.is_available(identifier)
+        return self._sd.is_available(identifier)
 
     def _get_enabled_list(self) -> list[SourceEntry]:
-        return [e for e in self.sd.get_enabled_entries() if e.source.identifier in self._enabled]
+        return [e for e in self._sd.get_enabled_entries() if e.source.identifier in self._enabled]
 
     @staticmethod
     def _ep_key(ep: Episode) -> str:
@@ -133,10 +127,10 @@ class AnimeService:
 
         return list(entries.values())
 
-    def get_anime_details(self, link: str) -> Anime:
+    def get_anime_details(self, link: str) -> AnimeDetail:
         sources = [e for e in self._get_enabled_list() if e.source.has_details]
         if not sources:
-            return Anime(title="", rating="", link=link)
+            return AnimeDetail(title="", rating="", link=link)
 
         def fetch(entry: SourceEntry) -> Anime | None:
             try:
@@ -149,8 +143,28 @@ class AnimeService:
             for future in as_completed(futures):
                 result = future.result()
                 if result and result.title:
-                    return result
-        return Anime(title="", rating="", link=link)
+                    return self._anime_to_detail(result)
+        return AnimeDetail(title="", rating="", link=link)
+
+    @staticmethod
+    def _anime_to_detail(anime: Anime) -> AnimeDetail:
+        seasons: list[SeasonDetail] | None = None
+        if anime.seasons:
+            seasons = [
+                SeasonDetail(
+                    number=s.number,
+                    episodes=[_episode_to_item(ep) for ep in s.episodes],
+                )
+                for s in anime.seasons
+            ]
+        return AnimeDetail(
+            title=anime.title,
+            rating=anime.rating,
+            link=anime.link,
+            image=anime.image,
+            description=anime.description,
+            seasons=seasons,
+        )
 
     def get_video_src(self, episode_link: str, preferred_source: str | None = None) -> str:
         sources = self._get_enabled_list()

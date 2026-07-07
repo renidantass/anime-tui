@@ -2,8 +2,13 @@ from abc import ABC, abstractmethod
 from app.domain import Anime, Episode
 
 
-
 class IAnimeFeedReader(ABC):
+    name: str = ""
+    identifier: str = ""
+    color: str = ""
+    has_search: bool = True
+    has_details: bool = True
+
     @abstractmethod
     def get_last_episodes(self) -> list[Episode]:
         pass
