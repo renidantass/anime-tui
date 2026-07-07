@@ -8,7 +8,8 @@ class EpisodeVM:
     link: str
     video_src: str
     date: str
+    image: str = ''
 
     @property
     def display_title(self) -> str:
-        return f"{self.number} - {self.title}"
+        return f"[bold]{self.number}[/] - {self.title}"

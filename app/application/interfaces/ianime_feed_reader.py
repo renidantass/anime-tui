@@ -11,3 +11,11 @@ class IAnimeFeedReader(ABC):
     @abstractmethod
     def search_by(self, name: str) -> list[Anime]:
         pass
+
+    @abstractmethod
+    def get_anime_details(self, link: str) -> Anime:
+        pass
+
+    @abstractmethod
+    def get_video_src(self, episode_link: str) -> str:
+        pass

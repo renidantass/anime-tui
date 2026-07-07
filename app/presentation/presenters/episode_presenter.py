@@ -11,6 +11,7 @@ class EpisodePresenter:
             link=episode.link,
             video_src=episode.video_src,
             date=episode.date,
+            image=episode.image,
         )
 
     @staticmethod

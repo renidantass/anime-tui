@@ -7,4 +7,5 @@ class Episode:
     title: str
     link: str
     video_src: str
+    image: str = ''
     date: str = '00/00'

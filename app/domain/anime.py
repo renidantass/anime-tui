@@ -8,5 +8,6 @@ class Anime:
     title: str
     rating: str
     link: str
+    image: str = ''
     description: Optional[str] = None
     seasons: Optional[list[Season]] = None

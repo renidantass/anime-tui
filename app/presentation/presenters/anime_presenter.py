@@ -9,6 +9,7 @@ class AnimePresenter:
             title=anime.title,
             rating=anime.rating,
             link=anime.link,
+            image=anime.image,
             description=anime.description,
         )
 
