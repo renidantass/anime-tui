@@ -10,4 +10,5 @@ dependencies = [
     "lxml>=6.1.1",
     "requests>=2.34.2",
     "ruff>=0.15.20",
+    "textual>=2.1.0",
 ]
