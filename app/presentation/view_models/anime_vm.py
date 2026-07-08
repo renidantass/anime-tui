@@ -1,12 +1,13 @@
 from dataclasses import dataclass
-from app.domain.season import Season
+
+from app.presentation.view_models.season_vm import SeasonVM
 
 
 @dataclass(slots=True)
-class Anime:
+class AnimeVM:
     title: str
     rating: str
     link: str
     image: str = ''
     description: str | None = None
-    seasons: list[Season] | None = None
+    seasons: list[SeasonVM] | None = None

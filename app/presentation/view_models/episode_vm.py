@@ -2,10 +2,10 @@ from dataclasses import dataclass
 
 
 @dataclass(slots=True)
-class Episode:
+class EpisodeVM:
     number: str
     title: str
     link: str
     video_src: str
+    date: str
     image: str = ''
-    date: str = ''
