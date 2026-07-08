@@ -1,5 +1,3 @@
-import webbrowser
-
 from app.application.anime_service import AnimeService
 from app.application.watch_history_service import WatchHistoryService
 from app.infrastructure.sources import SourceDiscovery
@@ -9,7 +7,13 @@ from textual.app import App
 
 
 class AnimeTUI(App):
-    def __init__(self, service: AnimeService, history_service: WatchHistoryService, *args, **kwargs):
+    def __init__(
+        self,
+        service: AnimeService,
+        history_service: WatchHistoryService,
+        *args,
+        **kwargs,
+    ):
         super().__init__(*args, **kwargs)
         self._service = service
         self._history_service = history_service
@@ -20,20 +24,31 @@ class AnimeTUI(App):
     ]
 
     def on_mount(self) -> None:
-        self.push_screen(HomeScreen(
-            self._service,
-            on_watch=self._history_service.add_entry,
-        ))
+        hs = self._history_service
+        self.push_screen(
+            HomeScreen(
+                self._service,
+                on_watch=hs.add_entry,
+                get_progress=hs.get_progress,
+                on_progress=lambda link, pos, dur: hs.update_progress(link, pos, dur),
+            )
+        )
 
     def action_quit(self) -> None:
         self.exit()
 
     def action_history(self) -> None:
-        self.push_screen(HistoryScreen(
-            load_history=lambda: [HistoryVM.from_entity(e) for e in self._history_service.get_all()],
-            clear_history=self._history_service.clear_all,
-            open_url=webbrowser.open,
-        ))
+        hs = self._history_service
+        self.push_screen(
+            HistoryScreen(
+                load_history=lambda: [
+                    HistoryVM.from_entity(e) for e in hs.get_all_deduped()
+                ],
+                clear_history=hs.clear_all,
+                service=self._service,
+                on_progress=lambda link, pos, dur: hs.update_progress(link, pos, dur),
+            )
+        )
 
 
 def main():

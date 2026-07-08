@@ -8,6 +8,8 @@ from textual.app import ComposeResult
 from textual.screen import Screen
 from textual.widgets import Header, Footer, Static, ListView, ListItem, LoadingIndicator
 
+from app.application.anime_service import AnimeService
+from app.infrastructure.player import open_video
 from app.presentation.view_models.history_vm import HistoryVM
 from app.presentation.utils.badge import badge_tag
 from app.presentation.utils.image_cache import get_image
@@ -57,14 +59,16 @@ class HistoryScreen(Screen):
         self,
         load_history: Callable[[], list[HistoryVM]],
         clear_history: Callable[[], None],
-        open_url: Callable[[str], None],
+        service: AnimeService,
+        on_progress: Callable[[str, float, float], None] | None = None,
         *args,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
         self._load_history = load_history
         self._clear_history = clear_history
-        self._open_url = open_url
+        self._service = service
+        self._on_progress = on_progress
         self._confirming_clear = False
 
     def compose(self) -> ComposeResult:
@@ -101,7 +105,9 @@ class HistoryScreen(Screen):
             asyncio.create_task(self._do_clear())
         else:
             self._confirming_clear = True
-            self.query_one("#status", Static).update("[red]Pressione 'c' novamente para confirmar[/]")
+            self.query_one("#status", Static).update(
+                "[red]Pressione 'c' novamente para confirmar[/]"
+            )
 
     async def _do_load(self) -> None:
         try:
@@ -110,7 +116,7 @@ class HistoryScreen(Screen):
             self._rebuild_list(entries)
             self.query_one("#loading", LoadingIndicator).display = False
             self.query_one("#status", Static).update(
-                f"[dim]{len(entries)} registro(s) carregado(s)[/]"
+                f"[dim]{len(entries)} registro(s) · Enter para retomar[/]"
             )
         except Exception as e:
             self.query_one("#loading", LoadingIndicator).display = False
@@ -148,11 +154,14 @@ class HistoryScreen(Screen):
 
         badge = badge_tag(entry.source_name, entry.source_color)
         time_str = _relative_time(entry.watched_at)
+        progress = entry.progress_label()
 
         text = f"[bold]{entry.anime_title or entry.episode_title}[/]"
         if entry.anime_title != entry.episode_title:
             text += f"\n{entry.episode_number} - {entry.episode_title}"
         text += f"\n{badge} [dim]{time_str}[/]"
+        if progress:
+            text += f"\n[cyan]▶ {progress}[/]"
 
         if ansi:
             table.add_row(ansi, Text.from_markup(text))
@@ -161,7 +170,56 @@ class HistoryScreen(Screen):
 
         return Static(table)
 
+    def _set_status(self, msg: str) -> None:
+        try:
+            self.query_one("#status", Static).update(msg)
+        except Exception:
+            pass
+
     def on_list_view_selected(self, event: ListView.Selected) -> None:
         entry: HistoryVM | None = event.item.meta.get("entry")
         if entry and entry.episode_link:
-            self._open_url(entry.episode_link)
+            self.loading = True
+            asyncio.create_task(self._resume_entry(entry))
+
+    async def _resume_entry(self, entry: HistoryVM) -> None:
+        start_at = entry.resume_at()
+        self._set_status("[yellow]Preparando retomada…[/]")
+        try:
+            video_src = await asyncio.to_thread(
+                self._service.get_video_src,
+                entry.episode_link,
+                entry.source_name,
+            )
+            if not video_src:
+                self.loading = False
+                self._set_status("[red]Não foi possível obter o vídeo[/]")
+                return
+
+            def on_status(msg: str) -> None:
+                self.app.call_from_thread(self._set_status, f"[yellow]{msg}[/]")
+
+            def on_position(pos: float, dur: float) -> None:
+                if self._on_progress:
+                    self._on_progress(entry.episode_link, pos, dur)
+
+            ok = await asyncio.to_thread(
+                open_video,
+                video_src,
+                status=on_status,
+                start_at=start_at,
+                on_position=on_position if self._on_progress else None,
+            )
+            self.loading = False
+            if ok:
+                if start_at > 1:
+                    self._set_status(
+                        f"[green]Retomando de {int(start_at // 60)}:{int(start_at % 60):02d}[/]"
+                    )
+                else:
+                    self._set_status("[green]Player aberto[/]")
+            else:
+                self._set_status("[red]Não foi possível abrir o vídeo[/]")
+        except Exception as e:
+            self.loading = False
+            self._set_status(f"[red]Erro: {e}[/]")

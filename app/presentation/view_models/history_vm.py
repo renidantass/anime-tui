@@ -5,6 +5,15 @@ from dataclasses import dataclass
 from app.domain.watch_history import WatchHistoryEntry
 
 
+def _fmt_time(seconds: float) -> str:
+    s = max(0, int(seconds))
+    h, rem = divmod(s, 3600)
+    m, sec = divmod(rem, 60)
+    if h:
+        return f"{h}:{m:02d}:{sec:02d}"
+    return f"{m}:{sec:02d}"
+
+
 @dataclass(slots=True)
 class HistoryVM:
     anime_title: str
@@ -15,7 +24,9 @@ class HistoryVM:
     anime_image: str
     watched_at: str
     season_number: int
-    source_color: str = ''
+    source_color: str = ""
+    progress_seconds: float = 0.0
+    duration_seconds: float = 0.0
 
     @classmethod
     def from_entity(cls, entry: WatchHistoryEntry) -> HistoryVM:
@@ -29,4 +40,23 @@ class HistoryVM:
             watched_at=entry.watched_at,
             season_number=entry.season_number,
             source_color=entry.source_color,
+            progress_seconds=entry.progress_seconds,
+            duration_seconds=entry.duration_seconds,
         )
+
+    def progress_label(self) -> str:
+        if self.duration_seconds and self.duration_seconds > 0:
+            pct = min(100, int(self.progress_seconds * 100 / self.duration_seconds))
+            return (
+                f"{pct}% · {_fmt_time(self.progress_seconds)}"
+                f" / {_fmt_time(self.duration_seconds)}"
+            )
+        if self.progress_seconds and self.progress_seconds > 0:
+            return f"em {_fmt_time(self.progress_seconds)}"
+        return ""
+
+    def resume_at(self) -> float:
+        """Segundos de onde retomar (0 se terminou ou vazio)."""
+        if self.duration_seconds > 0 and self.progress_seconds / self.duration_seconds >= 0.92:
+            return 0.0
+        return max(0.0, float(self.progress_seconds or 0.0))

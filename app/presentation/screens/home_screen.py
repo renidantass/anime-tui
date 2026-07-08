@@ -21,16 +21,26 @@ _IMAGE_EXECUTOR = ThreadPoolExecutor(max_workers=8)
 
 
 class HomeScreen(Screen):
-    def __init__(self, service: AnimeService, on_watch: Callable[..., None] | None = None, *args, **kwargs):
+    def __init__(
+        self,
+        service: AnimeService,
+        on_watch: Callable[..., None] | None = None,
+        get_progress: Callable[[str], float] | None = None,
+        on_progress: Callable[[str, float, float], None] | None = None,
+        *args,
+        **kwargs,
+    ):
         super().__init__(*args, **kwargs)
         self._service = service
         self._on_watch = on_watch
+        self._get_progress = get_progress
+        self._on_progress = on_progress
 
     BINDINGS = [
         ("s", "search", "Buscar Anime"),
         ("r", "refresh", "Atualizar"),
         ("f", "filter", "Filtrar"),
-        ("F", "sources", "Fontes"),
+        ("o", "sources", "Opções"),
     ]
 
     def compose(self) -> ComposeResult:
@@ -66,7 +76,12 @@ class HomeScreen(Screen):
         await self._load_episodes()
 
     def action_search(self) -> None:
-        self.app.push_screen(SearchScreen(self._service, on_watch=self._on_watch))
+        self.app.push_screen(SearchScreen(
+            self._service,
+            on_watch=self._on_watch,
+            get_progress=self._get_progress,
+            on_progress=self._on_progress,
+        ))
 
     def action_sources(self) -> None:
         self.app.push_screen(SourceManagerScreen(self._service))
@@ -249,14 +264,32 @@ class HomeScreen(Screen):
                 self._set_play_status("[red]Fonte de vídeo não encontrada[/]")
                 return
 
+            # registra no histórico antes de tocar (para progresso)
+            self._record_history(entry, src)
+            start_at = 0.0
+            if self._get_progress:
+                start_at = float(self._get_progress(src.link) or 0.0)
+
             def on_status(msg: str) -> None:
                 self.app.call_from_thread(self._set_play_status, f"[yellow]{msg}[/]")
 
-            ok = await asyncio.to_thread(open_video, vs, status=on_status)
+            def on_position(pos: float, dur: float) -> None:
+                if self._on_progress:
+                    self._on_progress(src.link, pos, dur)
+
+            ok = await asyncio.to_thread(
+                open_video,
+                vs,
+                status=on_status,
+                start_at=start_at,
+                on_position=on_position if self._on_progress else None,
+            )
             self.loading = False
             if ok:
-                self._set_play_status("[green]Player aberto[/]")
-                self._record_history(entry, src)
+                msg = "[green]Player aberto[/]"
+                if start_at > 1:
+                    msg += f" [dim](retomando {int(start_at)}s)[/]"
+                self._set_play_status(msg)
             else:
                 self._set_play_status("[red]Não foi possível abrir o vídeo[/]")
         except Exception as e:

@@ -20,10 +20,20 @@ _SEARCH_IMAGE_EXECUTOR = ThreadPoolExecutor(max_workers=8)
 
 
 class SearchScreen(Screen):
-    def __init__(self, service: AnimeService, on_watch: Callable[..., None] | None = None, *args, **kwargs):
+    def __init__(
+        self,
+        service: AnimeService,
+        on_watch: Callable[..., None] | None = None,
+        get_progress: Callable[[str], float] | None = None,
+        on_progress: Callable[[str, float, float], None] | None = None,
+        *args,
+        **kwargs,
+    ):
         super().__init__(*args, **kwargs)
         self._service = service
         self._on_watch = on_watch
+        self._get_progress = get_progress
+        self._on_progress = on_progress
         self._debounce_timer = None
         self._search_history: list[str] = []
         self._search_task: asyncio.Task | None = None
@@ -172,7 +182,15 @@ class SearchScreen(Screen):
             self.loading = False
             if anime.title:
                 anime_vm = present_anime(anime)
-                self.app.push_screen(AnimeDetailScreen(self._service, anime_vm, source_name=source.name, source_color=source.color, on_watch=self._on_watch))
+                self.app.push_screen(AnimeDetailScreen(
+                    self._service,
+                    anime_vm,
+                    source_name=source.name,
+                    source_color=source.color,
+                    on_watch=self._on_watch,
+                    get_progress=self._get_progress,
+                    on_progress=self._on_progress,
+                ))
         except Exception:
             self.loading = False
 

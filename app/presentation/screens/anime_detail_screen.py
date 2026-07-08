@@ -28,13 +28,26 @@ class AnimeDetailScreen(Screen):
 
     BINDINGS = [("escape", "back", "Voltar")]
 
-    def __init__(self, service: AnimeService, anime_vm: AnimeVM, source_name: str = "Detalhes", source_color: str = "", on_watch: Callable[..., None] | None = None, *args, **kwargs):
+    def __init__(
+        self,
+        service: AnimeService,
+        anime_vm: AnimeVM,
+        source_name: str = "Detalhes",
+        source_color: str = "",
+        on_watch: Callable[..., None] | None = None,
+        get_progress: Callable[[str], float] | None = None,
+        on_progress: Callable[[str, float, float], None] | None = None,
+        *args,
+        **kwargs,
+    ):
         super().__init__(*args, **kwargs)
         self._service = service
         self._anime_vm = anime_vm
         self._source_name = source_name
         self._source_color = source_color
         self._on_watch = on_watch
+        self._get_progress = get_progress
+        self._on_progress = on_progress
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -77,29 +90,49 @@ class AnimeDetailScreen(Screen):
 
     async def _fetch_video(self, ep_vm: EpisodeVM) -> None:
         try:
-            video_src = await asyncio.to_thread(self._service.get_video_src, ep_vm.link)
+            video_src = await asyncio.to_thread(
+                self._service.get_video_src, ep_vm.link, self._source_name
+            )
             if not video_src:
                 self.loading = False
                 self.notify("Fonte de vídeo não encontrada", severity="error")
                 return
 
+            if self._on_watch:
+                self._on_watch(
+                    anime_title=self._anime_vm.title,
+                    episode_title=ep_vm.title,
+                    episode_number=ep_vm.number,
+                    episode_link=ep_vm.link,
+                    source_name=self._source_name,
+                    anime_image=self._anime_vm.image,
+                    source_color=self._source_color,
+                )
+
+            start_at = 0.0
+            if self._get_progress:
+                start_at = float(self._get_progress(ep_vm.link) or 0.0)
+
             def on_status(msg: str) -> None:
                 self.app.call_from_thread(self.notify, msg, timeout=2)
 
-            ok = await asyncio.to_thread(open_video, video_src, status=on_status)
+            def on_position(pos: float, dur: float) -> None:
+                if self._on_progress:
+                    self._on_progress(ep_vm.link, pos, dur)
+
+            ok = await asyncio.to_thread(
+                open_video,
+                video_src,
+                status=on_status,
+                start_at=start_at,
+                on_position=on_position if self._on_progress else None,
+            )
             self.loading = False
             if ok:
-                self.notify("Player aberto", severity="information")
-                if self._on_watch:
-                    self._on_watch(
-                        anime_title=self._anime_vm.title,
-                        episode_title=ep_vm.title,
-                        episode_number=ep_vm.number,
-                        episode_link=ep_vm.link,
-                        source_name=self._source_name,
-                        anime_image=self._anime_vm.image,
-                        source_color=self._source_color,
-                    )
+                if start_at > 1:
+                    self.notify(f"Retomando em {int(start_at)}s", severity="information")
+                else:
+                    self.notify("Player aberto", severity="information")
             else:
                 self.notify("Não foi possível abrir o vídeo", severity="error")
         except Exception as e:
