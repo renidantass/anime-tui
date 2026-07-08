@@ -1,5 +1,4 @@
 import asyncio
-import webbrowser
 from concurrent.futures import ThreadPoolExecutor
 from typing import Callable
 
@@ -11,6 +10,7 @@ from textual.widgets import Header, Footer, Static, ListView, ListItem, LoadingI
 
 from app.application import EpisodeEntry, SourceInfo
 from app.application.anime_service import AnimeService
+from app.infrastructure.player import open_video
 from app.presentation.screens.search_screen import SearchScreen
 from app.presentation.screens.source_select_screen import SourceSelectScreen
 from app.presentation.screens.source_manager_screen import SourceManagerScreen
@@ -207,20 +207,12 @@ class HomeScreen(Screen):
     def _open_episode(self, entry: EpisodeEntry) -> None:
         if len(entry.sources) == 1:
             src = entry.sources[0]
-            if src.video_src:
-                webbrowser.open(src.video_src)
-                self._record_history(entry, src)
-            else:
-                self.loading = True
-                asyncio.create_task(self._fetch_and_open(src, entry))
+            self.loading = True
+            asyncio.create_task(self._play_source(src, entry))
         elif len(entry.sources) > 1:
             def do_open(selected):
-                if selected.video_src:
-                    webbrowser.open(selected.video_src)
-                    self._record_history(entry, selected)
-                else:
-                    self.loading = True
-                    asyncio.create_task(self._fetch_and_open(selected, entry))
+                self.loading = True
+                asyncio.create_task(self._play_source(selected, entry))
 
             self.app.push_screen(
                 SourceSelectScreen(entry.sources, do_open)
@@ -239,15 +231,37 @@ class HomeScreen(Screen):
             source_color=src.color,
         )
 
-    async def _fetch_and_open(self, src: SourceInfo, entry: EpisodeEntry) -> None:
+    def _set_play_status(self, msg: str) -> None:
         try:
-            vs = await asyncio.to_thread(self._service.get_video_src, src.link, src.name)
-            self.loading = False
-            if vs:
-                webbrowser.open(vs)
-                self._record_history(entry, src)
+            self.query_one("#status", Static).update(msg)
         except Exception:
+            pass
+
+    async def _play_source(self, src: SourceInfo, entry: EpisodeEntry) -> None:
+        self._set_play_status("[yellow]Preparando vídeo…[/]")
+        try:
+            vs = src.video_src
+            if not vs:
+                self._set_play_status("[yellow]Buscando fonte do vídeo…[/]")
+                vs = await asyncio.to_thread(self._service.get_video_src, src.link, src.name)
+            if not vs:
+                self.loading = False
+                self._set_play_status("[red]Fonte de vídeo não encontrada[/]")
+                return
+
+            def on_status(msg: str) -> None:
+                self.app.call_from_thread(self._set_play_status, f"[yellow]{msg}[/]")
+
+            ok = await asyncio.to_thread(open_video, vs, status=on_status)
             self.loading = False
+            if ok:
+                self._set_play_status("[green]Player aberto[/]")
+                self._record_history(entry, src)
+            else:
+                self._set_play_status("[red]Não foi possível abrir o vídeo[/]")
+        except Exception as e:
+            self.loading = False
+            self._set_play_status(f"[red]Erro: {e}[/]")
 
     def on_list_view_selected(self, event: ListView.Selected) -> None:
         entry: EpisodeEntry | None = event.item.meta.get("entry")

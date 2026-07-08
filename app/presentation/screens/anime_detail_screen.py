@@ -1,5 +1,4 @@
 import asyncio
-import webbrowser
 from typing import Callable
 
 from textual.app import ComposeResult
@@ -8,6 +7,7 @@ from textual.screen import Screen
 from textual.widgets import Header, Footer, Static, Tree
 
 from app.application.anime_service import AnimeService
+from app.infrastructure.player import open_video
 from app.presentation.utils.image_cache import get_image
 from app.presentation.view_models import AnimeVM, EpisodeVM
 
@@ -78,9 +78,18 @@ class AnimeDetailScreen(Screen):
     async def _fetch_video(self, ep_vm: EpisodeVM) -> None:
         try:
             video_src = await asyncio.to_thread(self._service.get_video_src, ep_vm.link)
+            if not video_src:
+                self.loading = False
+                self.notify("Fonte de vídeo não encontrada", severity="error")
+                return
+
+            def on_status(msg: str) -> None:
+                self.app.call_from_thread(self.notify, msg, timeout=2)
+
+            ok = await asyncio.to_thread(open_video, video_src, status=on_status)
             self.loading = False
-            if video_src:
-                webbrowser.open(video_src)
+            if ok:
+                self.notify("Player aberto", severity="information")
                 if self._on_watch:
                     self._on_watch(
                         anime_title=self._anime_vm.title,
@@ -91,5 +100,8 @@ class AnimeDetailScreen(Screen):
                         anime_image=self._anime_vm.image,
                         source_color=self._source_color,
                     )
-        except Exception:
+            else:
+                self.notify("Não foi possível abrir o vídeo", severity="error")
+        except Exception as e:
             self.loading = False
+            self.notify(f"Erro: {e}", severity="error")
