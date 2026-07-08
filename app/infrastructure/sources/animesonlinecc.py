@@ -7,10 +7,7 @@ from bs4 import BeautifulSoup
 
 from app.domain import Anime, Episode, Season
 from app.infrastructure.sources._base import AnimeSource
-
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-}
+from app.infrastructure.sources._utils import HEADERS, validate_response
 
 
 class AnimesOnlineCC(AnimeSource):
@@ -34,26 +31,46 @@ class AnimesOnlineCC(AnimeSource):
 
     def get_video_src(self, episode_link: str) -> str:
         response = requests.get(episode_link, headers=HEADERS)
+        if not validate_response(response):
+            return episode_link
         soup = BeautifulSoup(response.text, self.default_analyzer)
         playex = soup.find('div', 'playex')
+        if playex is None:
+            return episode_link
         iframe = playex.iframe
-        return iframe['src']
+        if iframe is None:
+            return episode_link
+        return iframe.get('src', episode_link)
 
     def get_last_episodes(self) -> list[Episode]:
         retrieved: list[Episode] = []
 
         response = requests.get(self.urls["last_episodes"], headers=HEADERS)
+        if not validate_response(response):
+            return []
         soup = BeautifulSoup(response.text, self.default_analyzer)
         episodes = soup.find_all("article", "episodes")
 
         for episode in episodes:
-            title_element = episode.find('div', 'eptitle').h3
-            raw_title = title_element.get_text().strip()
-            episode_link = title_element.a['href']
+            eptitle_div = episode.find('div', 'eptitle')
+            if eptitle_div is None:
+                continue
+            title_h3 = eptitle_div.h3
+            if title_h3 is None:
+                continue
+            raw_title = title_h3.get_text().strip()
+            title_a = title_h3.a
+            if title_a is None:
+                continue
+            episode_link = title_a['href']
             episode_number = self.__get_episode_number(raw_title)
 
             poster = episode.find('div', 'poster')
-            image = poster.find('img')['src'] if poster and poster.find('img') else ''
+            image = ''
+            if poster is not None:
+                img_tag = poster.find('img')
+                if img_tag is not None:
+                    image = img_tag.get('src', '')
 
             retrieved.append(Episode(episode_number, raw_title, episode_link, '', image=image))
 
@@ -63,17 +80,26 @@ class AnimesOnlineCC(AnimeSource):
         retrieved: list[Anime] = []
 
         response = requests.get(f"{self.base_url}/?s={name}&post_type=animes", headers=HEADERS)
+        if not validate_response(response):
+            return []
         soup = BeautifulSoup(response.text, self.default_analyzer)
 
         for article in soup.find_all("article", "tvshows"):
             poster = article.find("div", "poster")
-            rating = poster.find("div", "rating").get_text()
+            if poster is None:
+                continue
+            rating_div = poster.find("div", "rating")
+            rating = rating_div.get_text() if rating_div else ''
             img = poster.find("img")
             image = img.get('src', '') if img else ''
 
             data = article.find("div", "data")
+            if data is None:
+                continue
             title = data.h3
-            link = title.a["href"]
+            if title is None:
+                continue
+            link = title.a["href"] if title.a else ''
             raw_title = title.get_text().strip()
 
             retrieved.append(Anime(title=raw_title, rating=rating, link=link, image=image))
@@ -82,13 +108,19 @@ class AnimesOnlineCC(AnimeSource):
 
     def get_anime_details(self, link: str) -> Anime:
         response = requests.get(link, headers=HEADERS)
+        if not validate_response(response):
+            return Anime(title='', rating='', link=link)
         soup = BeautifulSoup(response.text, self.default_analyzer)
 
         title_elem = soup.find('h1')
         title = title_elem.get_text().strip() if title_elem else link.rstrip('/').split('/')[-1]
 
         poster_div = soup.find('div', 'poster')
-        image = poster_div.find('img')['src'] if poster_div and poster_div.find('img') else ''
+        image = ''
+        if poster_div is not None:
+            img_tag = poster_div.find('img')
+            if img_tag is not None:
+                image = img_tag.get('src', '')
 
         seasons: list[Season] = []
 

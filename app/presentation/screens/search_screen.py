@@ -7,9 +7,11 @@ from textual.app import ComposeResult
 from textual.screen import Screen
 from textual.widgets import Header, Footer, ListView, ListItem, Input, Static, LoadingIndicator
 
+from typing import Callable
+
 from app.application import AnimeEntry, SourceInfo
 from app.application.anime_service import AnimeService
-from app.presentation.presenters.anime_presenter import AnimePresenter
+from app.presentation.presenters.anime_presenter import present_anime
 from app.presentation.screens.anime_detail_screen import AnimeDetailScreen
 from app.presentation.screens.source_select_screen import SourceSelectScreen
 from app.presentation.utils.image_cache import get_image
@@ -25,9 +27,10 @@ class SearchScreen(Screen):
     }
     """
 
-    def __init__(self, service: AnimeService, *args, **kwargs):
+    def __init__(self, service: AnimeService, on_watch: Callable[..., None] | None = None, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._service = service
+        self._on_watch = on_watch
         self._debounce_timer = None
         self._search_history: list[str] = []
 
@@ -132,6 +135,8 @@ class SearchScreen(Screen):
 
             if name.strip() not in self._search_history:
                 self._search_history.append(name.strip())
+                if len(self._search_history) > 20:
+                    self._search_history = self._search_history[-20:]
 
             urls = [(entry.image, 30) for entry in entries if entry.image]
             if urls:
@@ -169,8 +174,8 @@ class SearchScreen(Screen):
             anime = await asyncio.to_thread(self._service.get_anime_details, source.link)
             self.loading = False
             if anime.title:
-                anime_vm = AnimePresenter.present(anime)
-                self.app.push_screen(AnimeDetailScreen(self._service, anime_vm))
+                anime_vm = present_anime(anime)
+                self.app.push_screen(AnimeDetailScreen(self._service, anime_vm, source_name=source.name, source_color=source.color, on_watch=self._on_watch))
         except Exception:
             self.loading = False
 

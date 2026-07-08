@@ -1,5 +1,6 @@
 import asyncio
 import webbrowser
+from typing import Callable
 
 from textual.app import ComposeResult
 from textual.screen import Screen
@@ -13,10 +14,13 @@ from app.presentation.view_models import AnimeVM, EpisodeVM
 class AnimeDetailScreen(Screen):
     BINDINGS = [("escape", "back", "Voltar")]
 
-    def __init__(self, service: AnimeService, anime_vm: AnimeVM, *args, **kwargs):
+    def __init__(self, service: AnimeService, anime_vm: AnimeVM, source_name: str = "Detalhes", source_color: str = "", on_watch: Callable[..., None] | None = None, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._service = service
         self._anime_vm = anime_vm
+        self._source_name = source_name
+        self._source_color = source_color
+        self._on_watch = on_watch
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -54,13 +58,23 @@ class AnimeDetailScreen(Screen):
         if ep_vm is None:
             return
         self.loading = True
-        asyncio.create_task(self._fetch_video(ep_vm.link))
+        asyncio.create_task(self._fetch_video(ep_vm))
 
-    async def _fetch_video(self, link: str) -> None:
+    async def _fetch_video(self, ep_vm: EpisodeVM) -> None:
         try:
-            video_src = await asyncio.to_thread(self._service.get_video_src, link)
+            video_src = await asyncio.to_thread(self._service.get_video_src, ep_vm.link)
             self.loading = False
             if video_src:
                 webbrowser.open(video_src)
+                if self._on_watch:
+                    self._on_watch(
+                        anime_title=self._anime_vm.title,
+                        episode_title=ep_vm.title,
+                        episode_number=ep_vm.number,
+                        episode_link=ep_vm.link,
+                        source_name=self._source_name,
+                        anime_image=self._anime_vm.image,
+                        source_color=self._source_color,
+                    )
         except Exception:
             self.loading = False

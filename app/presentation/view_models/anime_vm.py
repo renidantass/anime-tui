@@ -11,7 +11,3 @@ class AnimeVM:
     image: str = ''
     description: str | None = None
     seasons: list[SeasonVM] | None = None
-
-    @property
-    def display_title(self) -> str:
-        return f"{self.title} [yellow]({self.rating})[/]"

@@ -18,16 +18,16 @@ class SourceSelectScreen(Screen):
     def compose(self) -> ComposeResult:
         yield Static("[bold]Escolha a fonte:[/]")
         with ListView(id="source-list"):
-            for s in self._sources:
-                yield ListItem(Static(f"[bold]{s.name}[/]"))
+            for idx, s in enumerate(self._sources):
+                item = ListItem(Static(f"[bold]{s.name}[/]"))
+                item.meta = {"index": idx}
+                yield item
 
     def action_cancel(self) -> None:
         self.app.pop_screen()
 
     def on_list_view_selected(self, event: ListView.Selected) -> None:
-        for idx, child in enumerate(self.query_one("#source-list", ListView).children):
-            if child is event.item:
-                selected = self._sources[idx]
-                self.app.pop_screen()
-                self._callback(selected)
-                return
+        idx = event.item.meta.get("index")
+        if idx is not None:
+            self.app.pop_screen()
+            self._callback(self._sources[idx])

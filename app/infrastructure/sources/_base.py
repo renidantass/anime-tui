@@ -8,3 +8,4 @@ class AnimeSource(IAnimeFeedReader):
     color: str = ""
     has_search: bool = True
     has_details: bool = True
+    default_analyzer: str = "lxml"

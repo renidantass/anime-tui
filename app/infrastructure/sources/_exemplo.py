@@ -14,6 +14,7 @@ no gerenciador de fontes e não é usada até ficar disponível.
 
 from app.domain import Anime, Episode
 from app.infrastructure.sources._base import AnimeSource
+from app.infrastructure.sources._utils import HEADERS, validate_response, get_episode_number
 
 
 class MeuSite(AnimeSource):
@@ -32,7 +33,10 @@ class MeuSite(AnimeSource):
         # Exemplo:
         # import requests
         # from bs4 import BeautifulSoup
-        # soup = BeautifulSoup(requests.get(self.base_url).text, 'lxml')
+        # response = requests.get(self.base_url, headers=HEADERS)
+        # if not validate_response(response):
+        #     return []
+        # soup = BeautifulSoup(response.text, self.default_analyzer)
         # episodes = []
         # for article in soup.find_all('article'):
         #     episodes.append(Episode(

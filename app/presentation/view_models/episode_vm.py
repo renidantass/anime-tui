@@ -9,7 +9,3 @@ class EpisodeVM:
     video_src: str
     date: str
     image: str = ''
-
-    @property
-    def display_title(self) -> str:
-        return f"[bold]{self.number}[/] - {self.title}"

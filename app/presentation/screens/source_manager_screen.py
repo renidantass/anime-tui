@@ -26,6 +26,7 @@ class SourceManagerScreen(Screen):
                     label=label,
                     value=self._service.is_enabled(entry.identifier),
                     disabled=not avail,
+                    id=f"source-{entry.identifier}",
                 )
                 yield cb
         yield Footer()
@@ -34,11 +35,8 @@ class SourceManagerScreen(Screen):
         self.dismiss()
 
     def on_checkbox_changed(self, event: Checkbox.Changed) -> None:
-        label = event.checkbox.label
-        raw = label.plain if hasattr(label, 'plain') else str(label)
-        source_name = raw.split(" ")[0].strip()
-
-        for entry in self._service.get_all_source_entries():
-            if entry.name == source_name:
-                self._service.set_enabled(entry.identifier, event.checkbox.value)
-                break
+        cb_id = event.checkbox.id or ""
+        if not cb_id.startswith("source-"):
+            return
+        identifier = cb_id[len("source-"):]
+        self._service.set_enabled(identifier, event.checkbox.value)

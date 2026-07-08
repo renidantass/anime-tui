@@ -9,6 +9,8 @@ from app.domain import Anime, Episode
 
 logger = logging.getLogger(__name__)
 
+_EXECUTOR = ThreadPoolExecutor(max_workers=16)
+
 
 def _episode_to_item(ep: Episode) -> EpisodeItem:
     return EpisodeItem(
@@ -24,13 +26,14 @@ def _episode_to_item(ep: Episode) -> EpisodeItem:
 class AnimeService:
     def __init__(self, source_discovery: ISourceDiscovery):
         self._sd = source_discovery
+        self._enabled: set[str] = set()
 
     def init_sources(self):
         self._sd.discover()
         self._reset_enabled()
 
     def _reset_enabled(self):
-        self._enabled: set[str] = set()
+        self._enabled = set()
         for e in self._sd.get_enabled_entries():
             self._enabled.add(e.identifier)
 
@@ -42,9 +45,6 @@ class AnimeService:
 
     def is_enabled(self, identifier: str) -> bool:
         return identifier in self._enabled
-
-    def get_enabled_source_names(self) -> list[str]:
-        return [entry.name for entry in self._sd.get_enabled_entries()]
 
     def get_all_source_entries(self) -> list[SourceEntry]:
         return self._sd.get_all_entries()
@@ -190,7 +190,10 @@ class AnimeService:
         if preferred_source:
             for e in sources:
                 if e.name == preferred_source:
-                    result = fetch(e)
+                    try:
+                        result = fetch(e)
+                    except Exception:
+                        result = ""
                     if result:
                         return result
 

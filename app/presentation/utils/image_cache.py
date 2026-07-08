@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import threading
+from collections import OrderedDict
 
 from app.presentation.utils.image_renderer import AnsiImage, render_image_from_url
 
-_image_cache: dict[str, AnsiImage | None] = {}
+_MAX_CACHE_SIZE = 256
+_image_cache: OrderedDict[str, AnsiImage | None] = OrderedDict()
 _cache_lock = threading.Lock()
 
 
@@ -21,6 +23,9 @@ def get_image(url: str, max_width: int = 20) -> AnsiImage | None:
     result = render_image_from_url(url, max_width)
 
     with _cache_lock:
-        _image_cache[key] = result
+        if key not in _image_cache:
+            if len(_image_cache) >= _MAX_CACHE_SIZE:
+                _image_cache.popitem(last=False)
+            _image_cache[key] = result
 
     return result

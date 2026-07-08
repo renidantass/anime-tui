@@ -7,10 +7,7 @@ from bs4 import BeautifulSoup
 
 from app.domain import Anime, Episode, Season
 from app.infrastructure.sources._base import AnimeSource
-
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-}
+from app.infrastructure.sources._utils import HEADERS, validate_response, get_episode_number
 
 
 class Topanimes(AnimeSource):
@@ -21,12 +18,6 @@ class Topanimes(AnimeSource):
     has_search = True
     has_details = True
 
-    default_analyzer = 'lxml'
-
-    def __get_episode_number(self, title: str) -> str:
-        match = re.search(r'Episódio\s*(\d+)', title, re.IGNORECASE)
-        return match.group(1) if match else '0'
-
     def get_video_src(self, episode_link: str) -> str:
         return episode_link
 
@@ -34,6 +25,8 @@ class Topanimes(AnimeSource):
         retrieved: list[Episode] = []
 
         response = requests.get(self.base_url, headers=HEADERS)
+        if not validate_response(response):
+            return []
         soup = BeautifulSoup(response.text, self.default_analyzer)
 
         for article in soup.find_all('article', class_='episodes'):
@@ -63,7 +56,7 @@ class Topanimes(AnimeSource):
                 h3 = data_div.find('h3')
                 if h3:
                     ep_text = h3.get_text().strip()
-                    episode_number = self.__get_episode_number(ep_text)
+                    episode_number = get_episode_number(ep_text)
                     title_text = f"{title_text} - {ep_text}"
 
             retrieved.append(Episode(
@@ -80,6 +73,8 @@ class Topanimes(AnimeSource):
         retrieved: list[Anime] = []
 
         response = requests.get(f"{self.base_url}/search/{name}", headers=HEADERS)
+        if not validate_response(response):
+            return []
         soup = BeautifulSoup(response.text, self.default_analyzer)
 
         for article in soup.find_all('article'):
@@ -102,6 +97,8 @@ class Topanimes(AnimeSource):
 
     def get_anime_details(self, link: str) -> Anime:
         response = requests.get(link, headers=HEADERS)
+        if not validate_response(response):
+            return Anime(title='', rating='', link=link)
         soup = BeautifulSoup(response.text, self.default_analyzer)
 
         title_elem = soup.find('h1')

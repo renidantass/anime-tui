@@ -40,10 +40,6 @@ class EpisodeEntry:
         self.date = date
         self.sources = sources or []
 
-    @property
-    def source_names(self) -> list[str]:
-        return [s.name for s in self.sources]
-
 
 class AnimeEntry:
     def __init__(
@@ -58,31 +54,27 @@ class AnimeEntry:
         self.image = image
         self.sources = sources or []
 
-    @property
-    def source_names(self) -> list[str]:
-        return [s.name for s in self.sources]
-
 
 # Use-case: detalhes do anime
 
 
-@dataclass(slots=True)
+@dataclass(slots=True, frozen=True)
 class EpisodeItem:
     number: str
     title: str
     link: str
     video_src: str
     image: str = ''
-    date: str = '00/00'
+    date: str = ''
 
 
-@dataclass(slots=True)
+@dataclass(slots=True, frozen=True)
 class SeasonDetail:
     number: int
     episodes: list[EpisodeItem]
 
 
-@dataclass(slots=True)
+@dataclass(slots=True, frozen=True)
 class AnimeDetail:
     title: str
     rating: str

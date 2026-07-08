@@ -1,5 +1,4 @@
 from .home_screen import HomeScreen
-from .search_screen import SearchScreen
-from .anime_detail_screen import AnimeDetailScreen
+from .history_screen import HistoryScreen
 
-__all__ = [HomeScreen, SearchScreen, AnimeDetailScreen]
+__all__ = [HomeScreen, HistoryScreen]

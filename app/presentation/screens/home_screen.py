@@ -1,6 +1,7 @@
 import asyncio
 import webbrowser
 from concurrent.futures import ThreadPoolExecutor
+from typing import Callable
 
 from rich.table import Table
 from rich.text import Text
@@ -26,9 +27,10 @@ class HomeScreen(Screen):
     }
     """
 
-    def __init__(self, service: AnimeService, *args, **kwargs):
+    def __init__(self, service: AnimeService, on_watch: Callable[..., None] | None = None, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._service = service
+        self._on_watch = on_watch
 
     BINDINGS = [
         ("s", "search", "Buscar Anime"),
@@ -68,7 +70,7 @@ class HomeScreen(Screen):
         await self._load_episodes()
 
     def action_search(self) -> None:
-        self.app.push_screen(SearchScreen(self._service))
+        self.app.push_screen(SearchScreen(self._service, on_watch=self._on_watch))
 
     def action_sources(self) -> None:
         self.app.push_screen(SourceManagerScreen(self._service))
@@ -202,27 +204,43 @@ class HomeScreen(Screen):
             src = entry.sources[0]
             if src.video_src:
                 webbrowser.open(src.video_src)
+                self._record_history(entry, src)
             else:
                 self.loading = True
-                asyncio.create_task(self._fetch_and_open(src))
+                asyncio.create_task(self._fetch_and_open(src, entry))
         elif len(entry.sources) > 1:
             def do_open(selected):
                 if selected.video_src:
                     webbrowser.open(selected.video_src)
+                    self._record_history(entry, selected)
                 else:
                     self.loading = True
-                    asyncio.create_task(self._fetch_and_open(selected))
+                    asyncio.create_task(self._fetch_and_open(selected, entry))
 
             self.app.push_screen(
                 SourceSelectScreen(entry.sources, do_open)
             )
 
-    async def _fetch_and_open(self, src: SourceInfo) -> None:
+    def _record_history(self, entry: EpisodeEntry, src: SourceInfo) -> None:
+        if not self._on_watch:
+            return
+        self._on_watch(
+            anime_title=entry.title,
+            episode_title=entry.title,
+            episode_number="?",
+            episode_link=src.link,
+            source_name=src.name,
+            anime_image=entry.image,
+            source_color=src.color,
+        )
+
+    async def _fetch_and_open(self, src: SourceInfo, entry: EpisodeEntry) -> None:
         try:
             vs = await asyncio.to_thread(self._service.get_video_src, src.link, src.name)
             self.loading = False
             if vs:
                 webbrowser.open(vs)
+                self._record_history(entry, src)
         except Exception:
             self.loading = False
 
