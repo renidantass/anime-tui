@@ -15,10 +15,11 @@ import hashlib
 import json
 import logging
 import os
+import secrets
 import shutil
 import socket
+import stat
 import subprocess
-import tempfile
 import threading
 import time
 import uuid
@@ -39,7 +40,10 @@ from app.infrastructure.config import (
     VALID_PLAYERS,
     load as load_config,
 )
+from app.infrastructure.security import is_safe_url, safe_player_url
 from app.infrastructure.sources._utils import HEADERS
+
+_IPC_DIR = Path.home() / ".cache" / "animes-tui" / "ipc"
 
 logger = logging.getLogger(__name__)
 
@@ -124,6 +128,17 @@ def download_video(
     session: requests.Session | None = None,
 ) -> Path:
     """Baixa o stream para *dest* (resume se parcial). Retorna o path final."""
+    if not is_safe_url(stream_url, allow_http=True, resolve_dns=True):
+        raise ValueError("URL de download bloqueada por política de segurança")
+
+    # só permite escrever dentro do cache do app
+    dest = dest.resolve()
+    cache_root = _CACHE_DIR.resolve()
+    try:
+        dest.relative_to(cache_root)
+    except ValueError as e:
+        raise ValueError("destino de cache inválido") from e
+
     dest.parent.mkdir(parents=True, exist_ok=True)
     partial = dest.with_suffix(dest.suffix + ".part")
 
@@ -209,6 +224,15 @@ def _popen(args: list[str]) -> subprocess.Popen | None:
         return None
 
 
+def _ensure_ipc_dir() -> Path:
+    _IPC_DIR.mkdir(parents=True, exist_ok=True)
+    try:
+        _IPC_DIR.chmod(0o700)
+    except OSError:
+        pass
+    return _IPC_DIR
+
+
 def _mpv_args(
     target: str,
     *,
@@ -220,7 +244,7 @@ def _mpv_args(
     exe = shutil.which("mpv")
     if not exe:
         return []
-    args = [exe, "--force-window=immediate", "--keep-open=no"]
+    args = [exe, "--force-window=immediate", "--keep-open=no", "--no-terminal"]
     if ipc_path:
         args.append(f"--input-ipc-server={ipc_path}")
     if start_at and start_at > 1:
@@ -230,7 +254,8 @@ def _mpv_args(
             f"--referrer={referer}",
             f"--user-agent={_DEFAULT_UA}",
         ]
-    args.append(target)
+    # '--' impede que a URL seja interpretada como opção do mpv
+    args += ["--", target]
     return args
 
 
@@ -241,6 +266,7 @@ def _vlc_args(
     referer: str = _BLOGGER_REFERER,
     start_at: float = 0.0,
     rc_host: str | None = None,
+    rc_passwd: str | None = None,
 ) -> list[str]:
     """Monta argv do VLC.
 
@@ -249,18 +275,18 @@ def _vlc_args(
     exe = shutil.which("vlc")
     if not exe:
         return []
-    # Sem --play-and-exit: se o demux falhar o usuário ainda vê a janela/erro.
-    # Com tracking, o processo fica vivo até o usuário fechar.
     args = [exe]
     if start_at and start_at > 1:
         args.append(f"--start-time={int(start_at)}")
     if rc_host:
-        # VLC 3.x: --rc-quiet não existe (abortava o processo com exit 1).
+        # VLC 3.x: RC só em loopback + senha aleatória
         args += [
             "--extraintf",
             "rc",
             f"--rc-host={rc_host}",
         ]
+        if rc_passwd:
+            args.append(f"--rc-passwd={rc_passwd}")
     args.append(target)
     if stream:
         args += [
@@ -288,25 +314,27 @@ def _ffplay_args(
             "-headers",
             f"Referer: {referer}\r\nUser-Agent: {_DEFAULT_UA}\r\n",
         ]
+    # ffplay também aceita '--' em builds recentes; URL por último
     args.append(target)
     return args
 
 
 def _stream_with_gstreamer(stream_url: str, *, start_at: float = 0.0) -> subprocess.Popen | None:
     """Stream HTTP com headers corretos via gst-launch (souphttpsrc)."""
+    safe = safe_player_url(stream_url)
+    if not safe:
+        return None
     gst = shutil.which("gst-launch-1.0")
     if not gst:
         return None
-    # start_at limitado: playbin com propriedade (ns)
+    # souphttpsrc: location como propriedade (sem shell)
     if start_at and start_at > 1:
         args = [
             gst,
             "-e",
             "playbin",
-            f"uri={stream_url}",
-            # souphttpsrc interno não recebe UA fácil; tenta mesmo assim
+            f"uri={safe}",
         ]
-        # playbin não seta UA — preferir mpv/vlc para resume
         logger.info("GStreamer playbin (start_at ignorado no stream)")
         return _popen(args)
 
@@ -314,7 +342,7 @@ def _stream_with_gstreamer(stream_url: str, *, start_at: float = 0.0) -> subproc
         gst,
         "-e",
         "souphttpsrc",
-        f"location={stream_url}",
+        f"location={safe}",
         f"user-agent={_DEFAULT_UA}",
         "!",
         "decodebin",
@@ -411,15 +439,29 @@ def _monitor_mpv(
         pass
 
 
-def _vlc_rc_cmd(host: str, port: int, cmd: str) -> str | None:
+def _vlc_rc_cmd(
+    host: str,
+    port: int,
+    cmd: str,
+    *,
+    passwd: str | None = None,
+) -> str | None:
     try:
         with socket.create_connection((host, port), timeout=1.0) as sock:
             sock.settimeout(1.0)
-            # drena banner
+            # drena banner / prompt de senha
             try:
-                sock.recv(4096)
+                banner = sock.recv(4096)
             except OSError:
-                pass
+                banner = b""
+            if passwd:
+                # Com --rc-passwd o VLC exige a senha na primeira linha
+                sock.sendall((passwd + "\n").encode())
+                time.sleep(0.08)
+                try:
+                    sock.recv(4096)
+                except OSError:
+                    pass
             sock.sendall((cmd.strip() + "\n").encode())
             time.sleep(0.05)
             data = b""
@@ -434,7 +476,6 @@ def _vlc_rc_cmd(host: str, port: int, cmd: str) -> str | None:
             except OSError:
                 pass
             text = data.decode(errors="replace")
-            # remove prompts
             lines = [
                 ln.strip()
                 for ln in text.replace(">", "\n").splitlines()
@@ -450,6 +491,7 @@ def _monitor_vlc(
     rc_host: str,
     on_position: PositionCallback | None,
     poll_interval: float = 2.0,
+    rc_passwd: str | None = None,
 ) -> None:
     host, _, port_s = rc_host.partition(":")
     try:
@@ -460,19 +502,18 @@ def _monitor_vlc(
         proc.wait()
         return
 
-    # espera RC subir
     for _ in range(40):
         if proc.poll() is not None:
             return
-        if _vlc_rc_cmd(host, port, "status") is not None:
+        if _vlc_rc_cmd(host, port, "status", passwd=rc_passwd) is not None:
             break
         time.sleep(0.15)
 
     last_pos, last_dur = 0.0, 0.0
     while proc.poll() is None:
         if on_position:
-            t = _vlc_rc_cmd(host, port, "get_time")
-            l = _vlc_rc_cmd(host, port, "get_length")
+            t = _vlc_rc_cmd(host, port, "get_time", passwd=rc_passwd)
+            l = _vlc_rc_cmd(host, port, "get_length", passwd=rc_passwd)
             try:
                 if t is not None and t.lstrip("-").isdigit():
                     last_pos = float(t)
@@ -494,6 +535,7 @@ def _start_progress_monitor(
     *,
     ipc_path: str | None = None,
     rc_host: str | None = None,
+    rc_passwd: str | None = None,
     on_position: PositionCallback | None = None,
 ) -> None:
     if not on_position:
@@ -504,7 +546,9 @@ def _start_progress_monitor(
             if name == PLAYER_MPV and ipc_path:
                 _monitor_mpv(proc, ipc_path, on_position)
             elif name == PLAYER_VLC and rc_host:
-                _monitor_vlc(proc, rc_host, on_position)
+                _monitor_vlc(
+                    proc, rc_host, on_position, rc_passwd=rc_passwd
+                )
             else:
                 proc.wait()
         except Exception:
@@ -523,15 +567,35 @@ def _launch_named_player(
     on_position: PositionCallback | None = None,
 ) -> bool:
     """Lança um player específico. *name*: mpv | vlc | gstreamer | ffplay."""
+    # streams remotos: validar URL; arquivos locais: path sob cache ou existente
+    if stream:
+        safe = safe_player_url(target)
+        if not safe:
+            logger.warning("Player recusou URL insegura: %s…", target[:80])
+            return False
+        target = safe
+    else:
+        p = Path(target)
+        if not p.is_file():
+            return False
+        # só toca arquivos sob o cache do app (evita path injection)
+        try:
+            p.resolve().relative_to(_CACHE_DIR.resolve())
+        except ValueError:
+            logger.warning("Arquivo fora do cache recusado: %s", p)
+            return False
+        target = str(p.resolve())
+
     ipc_path: str | None = None
     rc_host: str | None = None
+    rc_passwd: str | None = None
     args: list[str] = []
 
     if name == PLAYER_MPV:
         if on_position is not None or start_at > 1:
+            ipc_dir = _ensure_ipc_dir()
             ipc_path = str(
-                Path(tempfile.gettempdir())
-                / f"animes-tui-mpv-{os.getpid()}-{uuid.uuid4().hex[:8]}.sock"
+                ipc_dir / f"mpv-{os.getpid()}-{uuid.uuid4().hex[:8]}.sock"
             )
         args = _mpv_args(
             target,
@@ -542,17 +606,18 @@ def _launch_named_player(
         )
     elif name == PLAYER_VLC:
         if on_position is not None:
-            # porta efêmera
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 s.bind(("127.0.0.1", 0))
                 port = s.getsockname()[1]
             rc_host = f"127.0.0.1:{port}"
+            rc_passwd = secrets.token_urlsafe(18)
         args = _vlc_args(
             target,
             stream=stream,
             referer=referer,
             start_at=start_at,
             rc_host=rc_host,
+            rc_passwd=rc_passwd,
         )
     elif name == "ffplay":
         args = _ffplay_args(
@@ -583,12 +648,27 @@ def _launch_named_player(
     if proc is None:
         return False
 
+    # restringe permissões do socket mpv assim que existir
+    if ipc_path:
+        def _chmod_sock():
+            for _ in range(50):
+                if Path(ipc_path).exists():
+                    try:
+                        os.chmod(ipc_path, stat.S_IRUSR | stat.S_IWUSR)
+                    except OSError:
+                        pass
+                    return
+                time.sleep(0.05)
+
+        threading.Thread(target=_chmod_sock, daemon=True).start()
+
     if on_position is not None and name in (PLAYER_MPV, PLAYER_VLC):
         _start_progress_monitor(
             name,
             proc,
             ipc_path=ipc_path,
             rc_host=rc_host,
+            rc_passwd=rc_passwd,
             on_position=on_position,
         )
     return True
@@ -615,6 +695,8 @@ def _stream_with_player(
     """Toca a URL direta com o player preferido (+ fallbacks)."""
     if preferred == PLAYER_BROWSER:
         return False
+    if not safe_player_url(stream_url):
+        return False
 
     for name in _player_fallback_order(preferred):
         if _launch_named_player(
@@ -636,13 +718,19 @@ def _open_local_file(
     start_at: float = 0.0,
     on_position: PositionCallback | None = None,
 ) -> bool:
+    path = path.resolve()
+    try:
+        path.relative_to(_CACHE_DIR.resolve())
+    except ValueError:
+        logger.warning("Recusando abrir arquivo fora do cache: %s", path)
+        return False
+    if not path.is_file():
+        return False
+
     if preferred == PLAYER_BROWSER:
-        try:
-            webbrowser.open(path.as_uri())
-            return True
-        except Exception as e:
-            logger.error("Falha ao abrir no browser: %s", e)
-            return False
+        # não abre file:// arbitrário no browser a partir de conteúdo remoto
+        logger.warning("Browser não é suportado para arquivo local de cache")
+        preferred = PLAYER_AUTO
 
     for name in _player_fallback_order(preferred):
         if _launch_named_player(
@@ -661,12 +749,8 @@ def _open_local_file(
             logger.info("Reproduzindo com xdg-open: %s", path)
             return True
 
-    try:
-        webbrowser.open(path.as_uri())
-        return True
-    except Exception as e:
-        logger.error("Nenhum player disponível: %s", e)
-        return False
+    logger.error("Nenhum player disponível para %s", path)
+    return False
 
 
 def has_stream_player() -> bool:
@@ -695,6 +779,11 @@ def open_video(
     if not url:
         return False
 
+    # página/episode/token: precisa ser URL http(s) segura
+    if not is_safe_url(url, allow_http=True, resolve_dns=False):
+        _notify(status, "URL inicial bloqueada por segurança")
+        return False
+
     preferred = player or load_config().player
     if preferred not in VALID_PLAYERS:
         preferred = PLAYER_AUTO
@@ -714,11 +803,11 @@ def open_video(
         except Exception as e:
             logger.warning("Falha ao resolver stream de '%s': %s", url[:80], e)
             _notify(status, f"Erro ao extrair vídeo: {e}")
-            try:
-                webbrowser.open(url)
-                return True
-            except Exception:
-                return False
+            return False
+
+        if not is_safe_url(stream_url, allow_http=True, resolve_dns=True):
+            _notify(status, "Stream bloqueado por política de segurança")
+            return False
 
         low = stream_url.lower()
         is_direct = (
@@ -733,7 +822,11 @@ def open_video(
         if preferred == PLAYER_BROWSER:
             _notify(status, "Abrindo no navegador…")
             try:
-                webbrowser.open(stream_url if is_direct else url)
+                # só http(s) — nunca file://
+                open_u = stream_url if is_direct else url
+                if not is_safe_url(open_u, allow_http=True, resolve_dns=True):
+                    return False
+                webbrowser.open(open_u)
                 return True
             except Exception as e:
                 _notify(status, f"Erro: {e}")
@@ -809,10 +902,14 @@ def open_video(
                 logger.warning("Download falhou: %s", e)
                 _notify(status, f"Falha no download: {e}")
 
-        # 3) Browser
+        # 3) Browser (somente http/https seguro)
         _notify(status, "Abrindo no navegador…")
         try:
-            webbrowser.open(stream_url if stream_url != url else url)
+            open_u = stream_url if stream_url != url else url
+            if not is_safe_url(open_u, allow_http=True, resolve_dns=True):
+                _notify(status, "URL final bloqueada por segurança")
+                return False
+            webbrowser.open(open_u)
             return True
         except Exception as e:
             logger.error("Falha ao abrir vídeo: %s", e)

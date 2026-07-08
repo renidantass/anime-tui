@@ -7,6 +7,7 @@ import requests
 from bs4 import BeautifulSoup
 
 from app.domain import Anime, Episode, Season
+from app.infrastructure.security import is_safe_url, quote_path_segment
 from app.infrastructure.sources._base import AnimeSource
 from app.infrastructure.sources._utils import HEADERS, validate_response, get_episode_number
 
@@ -27,7 +28,9 @@ class Goyabu(AnimeSource):
             return ''
 
     def get_video_src(self, episode_link: str) -> str:
-        response = requests.get(episode_link, headers=HEADERS)
+        if not is_safe_url(episode_link, allow_http=True, resolve_dns=False):
+            return episode_link
+        response = requests.get(episode_link, headers=HEADERS, timeout=20)
         if not validate_response(response):
             return episode_link
         soup = BeautifulSoup(response.text, self.default_analyzer)
@@ -35,7 +38,9 @@ class Goyabu(AnimeSource):
         if tab:
             encrypted = tab.get('data-blogger-url-encrypted', '')
             if encrypted:
-                return self.__decode_video_url(encrypted)
+                decoded = self.__decode_video_url(encrypted)
+                if decoded and is_safe_url(decoded, allow_http=True, resolve_dns=False):
+                    return decoded
         return episode_link
 
     def get_last_episodes(self) -> list[Episode]:
@@ -75,7 +80,11 @@ class Goyabu(AnimeSource):
     def search_by(self, name: str) -> list[Anime]:
         retrieved: list[Anime] = []
 
-        response = requests.get(f"{self.base_url}/search/{name}", headers=HEADERS)
+        response = requests.get(
+            f"{self.base_url}/search/{quote_path_segment(name)}",
+            headers=HEADERS,
+            timeout=20,
+        )
         if not validate_response(response):
             return []
         soup = BeautifulSoup(response.text, self.default_analyzer)

@@ -3,14 +3,19 @@ from __future__ import annotations
 import io
 from dataclasses import dataclass
 
-import requests
-from PIL import Image as PILImage, ImageEnhance
+from PIL import Image as PILImage, ImageEnhance, ImageFile
 
 from rich.console import Console, ConsoleOptions, RenderResult
 from rich.color import Color
 from rich.measure import Measurement
 from rich.style import Style
 from rich.text import Text
+
+from app.infrastructure.security import _MAX_IMAGE_BYTES, is_safe_url, safe_get_bytes
+
+# evita DecompressionBomb em imagens absurdas (Pillow)
+ImageFile.LOAD_TRUNCATED_IMAGES = False
+PILImage.MAX_IMAGE_PIXELS = 25_000_000
 
 
 @dataclass
@@ -31,12 +36,14 @@ class AnsiImage:
 
 
 def _download_image(url: str, timeout: int = 10) -> bytes | None:
-    try:
-        resp = requests.get(url, timeout=timeout)
-        resp.raise_for_status()
-        return resp.content
-    except requests.RequestException:
+    if not is_safe_url(url, allow_http=True, resolve_dns=True):
         return None
+    return safe_get_bytes(
+        url,
+        timeout=timeout,
+        max_bytes=_MAX_IMAGE_BYTES,
+        allow_http=True,
+    )
 
 
 def _pixels_to_ansi(
@@ -67,10 +74,13 @@ def render_image_from_url(
         return None
     try:
         img = PILImage.open(io.BytesIO(data))
+        img.load()  # força decode agora (falha cedo se corrupto)
     except Exception:
         return None
 
     if img.width < 10 or img.height < 10:
+        return None
+    if img.width * img.height > 25_000_000:
         return None
 
     img = img.convert("RGBA")

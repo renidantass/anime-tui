@@ -5,7 +5,10 @@ import re
 import requests
 from bs4 import BeautifulSoup
 
+from urllib.parse import quote
+
 from app.domain import Anime, Episode, Season
+from app.infrastructure.security import is_safe_url
 from app.infrastructure.sources._base import AnimeSource
 from app.infrastructure.sources._utils import HEADERS, validate_response
 
@@ -30,7 +33,9 @@ class AnimesOnlineCC(AnimeSource):
         return separated_title[-1].strip() or '0'
 
     def get_video_src(self, episode_link: str) -> str:
-        response = requests.get(episode_link, headers=HEADERS)
+        if not is_safe_url(episode_link, allow_http=True, resolve_dns=False):
+            return episode_link
+        response = requests.get(episode_link, headers=HEADERS, timeout=20)
         if not validate_response(response):
             return episode_link
         soup = BeautifulSoup(response.text, self.default_analyzer)
@@ -40,7 +45,10 @@ class AnimesOnlineCC(AnimeSource):
         iframe = playex.iframe
         if iframe is None:
             return episode_link
-        return iframe.get('src', episode_link)
+        src = iframe.get('src', episode_link) or episode_link
+        if is_safe_url(src, allow_http=True, resolve_dns=False):
+            return src
+        return episode_link
 
     def get_last_episodes(self) -> list[Episode]:
         retrieved: list[Episode] = []
@@ -79,7 +87,11 @@ class AnimesOnlineCC(AnimeSource):
     def search_by(self, name: str) -> list[Anime]:
         retrieved: list[Anime] = []
 
-        response = requests.get(f"{self.base_url}/?s={name}&post_type=animes", headers=HEADERS)
+        response = requests.get(
+            f"{self.base_url}/?s={quote(name, safe='')}&post_type=animes",
+            headers=HEADERS,
+            timeout=20,
+        )
         if not validate_response(response):
             return []
         soup = BeautifulSoup(response.text, self.default_analyzer)

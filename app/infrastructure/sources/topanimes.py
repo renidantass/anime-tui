@@ -9,6 +9,7 @@ import requests
 from bs4 import BeautifulSoup
 
 from app.domain import Anime, Episode, Season
+from app.infrastructure.security import is_safe_url, quote_path_segment
 from app.infrastructure.sources._base import AnimeSource
 from app.infrastructure.sources._utils import HEADERS, validate_response, get_episode_number
 
@@ -40,6 +41,8 @@ class Topanimes(AnimeSource):
         com Referer do próprio CDN. Evita 1a-1791.com (DNS quebra com frequência)
         e HLS do OdaCDN (segmentos fake em qooglecdn).
         """
+        if not is_safe_url(episode_link, allow_http=True, resolve_dns=False):
+            return episode_link
         response = requests.get(episode_link, headers=HEADERS, timeout=20)
         if not validate_response(response):
             return episode_link
@@ -70,6 +73,8 @@ class Topanimes(AnimeSource):
                 continue
 
             resolved = resolved.rstrip("/")
+            if not is_safe_url(resolved, allow_http=True, resolve_dns=False):
+                continue
             if not self._host_resolves(resolved):
                 logger.debug("Topanimes: host sem DNS %s", urlparse(resolved).hostname)
                 continue
@@ -305,6 +310,8 @@ class Topanimes(AnimeSource):
         session: requests.Session,
         referer: str,
     ) -> str | None:
+        if not is_safe_url(page_url, allow_http=True, resolve_dns=True):
+            return None
         try:
             resp = session.get(
                 page_url,
@@ -391,7 +398,11 @@ class Topanimes(AnimeSource):
     def search_by(self, name: str) -> list[Anime]:
         retrieved: list[Anime] = []
 
-        response = requests.get(f"{self.base_url}/search/{name}", headers=HEADERS)
+        response = requests.get(
+            f"{self.base_url}/search/{quote_path_segment(name)}",
+            headers=HEADERS,
+            timeout=20,
+        )
         if not validate_response(response):
             return []
         soup = BeautifulSoup(response.text, self.default_analyzer)

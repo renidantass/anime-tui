@@ -12,10 +12,11 @@ import logging
 import random
 import re
 from dataclasses import dataclass
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, quote, urlparse
 
 import requests
 
+from app.infrastructure.security import is_safe_url, require_safe_url
 from app.infrastructure.sources._utils import HEADERS
 
 logger = logging.getLogger(__name__)
@@ -46,12 +47,19 @@ def is_blogger_url(url: str) -> bool:
 def extract_token(url: str) -> str | None:
     m = BLOGGER_VIDEO_RE.search(url or "")
     if m:
-        return m.group("token")
-    # aceita URL já só com token em query
+        tok = m.group("token")
+        # token só alfanumérico + _- típico do Blogger
+        if tok and re.fullmatch(r"[A-Za-z0-9_\-]{16,512}", tok):
+            return tok
+        return None
     if url and "blogger.com" in url and "token=" in url:
+        if not is_safe_url(url, allow_http=True, resolve_dns=False):
+            return None
         qs = parse_qs(urlparse(url).query)
         tokens = qs.get("token")
-        return tokens[0] if tokens else None
+        tok = tokens[0] if tokens else None
+        if tok and re.fullmatch(r"[A-Za-z0-9_\-]{16,512}", tok):
+            return tok
     return None
 
 
@@ -63,10 +71,8 @@ def _session() -> requests.Session:
 
 def _fetch_bl(session: requests.Session, token: str) -> str:
     """Carrega a página do player para cookies + build label (``bl``)."""
-    page = session.get(
-        f"https://www.blogger.com/video.g?token={token}",
-        timeout=20,
-    )
+    page_url = f"https://www.blogger.com/video.g?token={quote(token, safe='')}"
+    page = session.get(page_url, timeout=20)
     page.raise_for_status()
     m = re.search(r"boq_bloggeruiserver_[^'\"\s]+", page.text)
     return m.group(0) if m else "boq_bloggeruiserver_20260706.01_p0"
@@ -124,6 +130,18 @@ def _parse_streams(raw: str) -> list[BloggerStream]:
         if not item:
             continue
         url = item[0]
+        if not isinstance(url, str):
+            continue
+        # só aceita googlevideo / hosts Google de mídia
+        host = (urlparse(url).hostname or "").lower()
+        if not any(
+            host == h or host.endswith("." + h)
+            for h in ("googlevideo.com", "googleusercontent.com", "gvt1.com")
+        ):
+            logger.warning("Blogger: host de stream recusado: %s", host)
+            continue
+        if not is_safe_url(url, allow_http=False, resolve_dns=True):
+            continue
         itag = 0
         if len(item) > 1 and item[1]:
             itag = int(item[1][0]) if isinstance(item[1], list) else int(item[1])
@@ -140,9 +158,11 @@ def _parse_streams(raw: str) -> list[BloggerStream]:
 
 def extract_streams(url_or_token: str, *, session: requests.Session | None = None) -> list[BloggerStream]:
     """Resolve um link ``video.g?token=…`` (ou o token puro) em streams diretos."""
-    token = extract_token(url_or_token) or url_or_token.strip()
+    token = extract_token(url_or_token)
+    if not token and url_or_token and re.fullmatch(r"[A-Za-z0-9_\-]{16,512}", url_or_token.strip()):
+        token = url_or_token.strip()
     if not token:
-        raise ValueError("Token Blogger vazio")
+        raise ValueError("Token Blogger vazio ou inválido")
 
     own = session is None
     sess = session or _session()
@@ -166,4 +186,7 @@ def extract_best_url(url_or_token: str, *, session: requests.Session | None = No
     """Retorna a melhor URL de stream (itag mais alto, ex.: 22 > 18)."""
     streams = extract_streams(url_or_token, session=session)
     best = max(streams, key=lambda s: s.itag)
-    return best.url
+    safe = require_safe_url(best.url, allow_http=False, resolve_dns=True)
+    if not safe:
+        raise ValueError("Stream Blogger rejeitado por segurança")
+    return safe

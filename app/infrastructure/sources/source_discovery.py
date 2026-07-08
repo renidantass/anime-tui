@@ -84,6 +84,7 @@ class SourceDiscovery(ISourceDiscovery):
                 if not base_url:
                     continue
                 try:
+                    # base_url vem do código da fonte (não do usuário); timeout curto
                     resp = requests.get(base_url, timeout=8, headers=HEADERS)
                     if resp.status_code != 200:
                         entry.available = False
