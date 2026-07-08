@@ -4,7 +4,8 @@ import io
 from dataclasses import dataclass
 
 import requests
-from PIL import Image as PILImage
+from PIL import Image as PILImage, ImageEnhance
+
 from rich.console import Console, ConsoleOptions, RenderResult
 from rich.color import Color
 from rich.measure import Measurement
@@ -51,7 +52,7 @@ def _pixels_to_ansi(
             r1, g1, b1 = top
             r2, g2, b2 = bottom
             style = Style(color=Color.from_rgb(r1, g1, b1), bgcolor=Color.from_rgb(r2, g2, b2))
-            result.append("▀", style=style)
+            result.append("\u2580", style=style)
         if y + 2 < target_h:
             result.append("\n")
     return result
@@ -69,17 +70,30 @@ def render_image_from_url(
     except Exception:
         return None
 
+    if img.width < 10 or img.height < 10:
+        return None
+
     img = img.convert("RGBA")
+
+    background = PILImage.new("RGBA", img.size, (24, 24, 28, 255))
+    img = PILImage.alpha_composite(background, img)
+    img = img.convert("RGB")
 
     aspect = img.height / img.width
     target_w = max_width
-    target_h = round(target_w * aspect * 0.5)
+    target_h = max(2, round(target_w * aspect * 0.5))
 
     img = img.resize((target_w, target_h), PILImage.LANCZOS)
 
+    enhancer = ImageEnhance.Sharpness(img)
+    img = enhancer.enhance(1.4)
+
+    enhancer = ImageEnhance.Contrast(img)
+    img = enhancer.enhance(1.15)
+
     pixels = list(img.getdata())
     pixel_grid = [
-        [pixels[y * target_w + x][:3] for x in range(target_w)]
+        [pixels[y * target_w + x] for x in range(target_w)]
         for y in range(target_h)
     ]
 

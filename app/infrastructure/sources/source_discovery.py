@@ -25,11 +25,13 @@ class SourceDiscovery(ISourceDiscovery):
         self._readers: dict[str, IAnimeFeedReader] = {}
         self._lock = threading.Lock()
         self._bg_done = False
+        self._discovered = False
 
     def discover(self) -> dict[str, SourceEntry]:
-        with self._lock:
-            self._sources = {}
-            self._readers = {}
+        if self._discovered:
+            with self._lock:
+                return dict(self._sources)
+        self._discovered = True
 
         module_names = [
             name for _, name, _ in pkgutil.iter_modules(importlib.import_module('app.infrastructure.sources').__path__)
@@ -95,10 +97,7 @@ class SourceDiscovery(ISourceDiscovery):
         t.start()
 
     def get_all_entries(self) -> list[SourceEntry]:
-        with self._lock:
-            if not self._sources:
-                pass
-        if not self._sources:
+        if not self._discovered:
             self.discover()
         with self._lock:
             return list(self._sources.values())

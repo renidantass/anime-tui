@@ -109,6 +109,8 @@ class Goyabu(AnimeSource):
         title = title_elem.get_text().strip() if title_elem else link.rstrip('/').split('/')[-1]
 
         img = soup.find('img', class_='cover')
+        if not img:
+            img = soup.find('img', src=True)
         image = img.get('src', '') if img else ''
 
         episodes: list[Episode] = []
@@ -125,6 +127,22 @@ class Goyabu(AnimeSource):
                 link=link_el['href'],
                 video_src='',
             ))
+
+        if not episodes:
+            for a in soup.select('a[href*="/episodio/"]'):
+                text = a.get_text().strip()
+                if not text:
+                    continue
+                ep_match = re.search(r'\d+', text)
+                ep_num = ep_match.group() if ep_match else '?'
+                href = a.get('href', '')
+                if href:
+                    episodes.append(Episode(
+                        number=ep_num,
+                        title=text,
+                        link=href,
+                        video_src='',
+                    ))
 
         seasons = [Season(number=1, episodes=episodes)] if episodes else None
 

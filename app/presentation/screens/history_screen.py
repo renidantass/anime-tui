@@ -46,13 +46,6 @@ def _relative_time(iso_str: str) -> str:
 
 
 class HistoryScreen(Screen):
-    DEFAULT_CSS = """
-    #loading {
-        height: 1;
-        width: 100%;
-        content-align: center middle;
-    }
-    """
 
     BINDINGS = [
         ("escape", "back", "Voltar"),
@@ -147,7 +140,7 @@ class HistoryScreen(Screen):
             list_view.append(item)
 
     def _build_item(self, entry: HistoryVM) -> Static:
-        ansi = get_image(entry.anime_image, max_width=40) if entry.anime_image else None
+        ansi = get_image(entry.anime_image, max_width=50) if entry.anime_image else None
 
         table = Table.grid(padding=(0, 2))
         table.add_column(width=ansi.width if ansi else 1)
@@ -157,7 +150,8 @@ class HistoryScreen(Screen):
         time_str = _relative_time(entry.watched_at)
 
         text = f"[bold]{entry.anime_title or entry.episode_title}[/]"
-        text += f"\n{entry.episode_number} - {entry.episode_title}"
+        if entry.anime_title != entry.episode_title:
+            text += f"\n{entry.episode_number} - {entry.episode_title}"
         text += f"\n{badge} [dim]{time_str}[/]"
 
         if ansi:

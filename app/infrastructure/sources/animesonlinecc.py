@@ -121,6 +121,10 @@ class AnimesOnlineCC(AnimeSource):
             img_tag = poster_div.find('img')
             if img_tag is not None:
                 image = img_tag.get('src', '')
+        if not image:
+            fallback_img = soup.find('img', src=True)
+            if fallback_img is not None:
+                image = fallback_img.get('src', '')
 
         seasons: list[Season] = []
 

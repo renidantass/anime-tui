@@ -105,6 +105,8 @@ class Topanimes(AnimeSource):
         title = title_elem.get_text().strip() if title_elem else link.rstrip('/').split('/')[-1]
 
         img = soup.find('img', class_=lambda c: c and 'poster' in c.lower() if c else False)
+        if not img:
+            img = soup.find('img', src=True)
         image = ''
         if img:
             image = img.get('src', '')

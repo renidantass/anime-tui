@@ -18,6 +18,7 @@ def get_image(url: str, max_width: int = 20) -> AnsiImage | None:
 
     with _cache_lock:
         if key in _image_cache:
+            _image_cache.move_to_end(key)
             return _image_cache[key]
 
     result = render_image_from_url(url, max_width)

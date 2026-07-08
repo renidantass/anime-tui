@@ -17,16 +17,10 @@ from app.presentation.screens.source_manager_screen import SourceManagerScreen
 from app.presentation.utils.image_cache import get_image
 from app.presentation.utils.badge import badge_tag
 
+_IMAGE_EXECUTOR = ThreadPoolExecutor(max_workers=8)
+
 
 class HomeScreen(Screen):
-    DEFAULT_CSS = """
-    #loading {
-        height: 1;
-        width: 100%;
-        content-align: center middle;
-    }
-    """
-
     def __init__(self, service: AnimeService, on_watch: Callable[..., None] | None = None, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._service = service
@@ -55,6 +49,8 @@ class HomeScreen(Screen):
     async def on_mount(self) -> None:
         self._all_entries: list[EpisodeEntry] = []
         self._filter_query: str = ""
+        self._filter_active: bool = False
+        self._filter_debounce: asyncio.Task | None = None
         self.query_one("#loading", LoadingIndicator).display = True
         self.query_one("#status", Static).update("[yellow]Carregando fontes...[/]")
         asyncio.create_task(self._initial_load())
@@ -86,15 +82,17 @@ class HomeScreen(Screen):
         if label.display:
             self._filter_query = ""
             label.display = False
-            self._rebuild_list(self._all_entries)
+            if self._filter_active:
+                self._rebuild_list(self._all_entries)
+                self._filter_active = False
             self.query_one("#status", Static).update(
                 f"[dim]{len(self._all_entries)} episódio(s) carregado(s)[/]"
             )
         else:
             self._filter_query = ""
+            self._filter_active = False
             label.display = True
             self._update_filter_label()
-            self._rebuild_list(self._all_entries)
 
     def _update_filter_label(self):
         self.query_one("#filter-label", Static).update(
@@ -133,14 +131,22 @@ class HomeScreen(Screen):
             event.stop()
 
     def _apply_filter(self):
+        if self._filter_debounce and not self._filter_debounce.done():
+            self._filter_debounce.cancel()
+        self._filter_debounce = asyncio.create_task(self._apply_filter_debounced())
+
+    async def _apply_filter_debounced(self):
+        await asyncio.sleep(0.15)
         query = self._filter_query.lower().strip()
         if query:
             filtered = [
                 e for e in self._all_entries
                 if query in e.title.lower()
             ]
+            self._filter_active = True
         else:
             filtered = self._all_entries
+            self._filter_active = False
         self._rebuild_list(filtered)
         self.query_one("#status", Static).update(
             f"[dim]{len(filtered)}/{len(self._all_entries)} episódio(s)[/]"
@@ -156,7 +162,7 @@ class HomeScreen(Screen):
             list_view.append(item)
 
     def _build_item(self, entry: EpisodeEntry) -> Static:
-        ansi = get_image(entry.image, max_width=40) if entry.image else None
+        ansi = get_image(entry.image, max_width=55) if entry.image else None
 
         table = Table.grid(padding=(0, 2))
         table.add_column(width=ansi.width if ansi else 1)
@@ -181,11 +187,10 @@ class HomeScreen(Screen):
             list_view = self.query_one("#episodes-list", ListView)
             list_view.clear()
 
-            urls = [(entry.image, 40) for entry in entries if entry.image]
+            urls = [(entry.image, 55) for entry in entries if entry.image]
             if urls:
-                with ThreadPoolExecutor(max_workers=8) as ex:
-                    futures = [ex.submit(get_image, url, w) for url, w in urls]
-                    await asyncio.gather(*(asyncio.wrap_future(f) for f in futures))
+                futures = [_IMAGE_EXECUTOR.submit(get_image, url, w) for url, w in urls]
+                await asyncio.gather(*(asyncio.wrap_future(f) for f in futures))
 
             self._rebuild_list(entries)
             self.query_one("#loading", LoadingIndicator).display = False

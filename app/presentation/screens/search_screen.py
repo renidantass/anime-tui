@@ -1,13 +1,12 @@
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
+from typing import Callable
 
 from rich.table import Table
 from rich.text import Text
 from textual.app import ComposeResult
 from textual.screen import Screen
 from textual.widgets import Header, Footer, ListView, ListItem, Input, Static, LoadingIndicator
-
-from typing import Callable
 
 from app.application import AnimeEntry, SourceInfo
 from app.application.anime_service import AnimeService
@@ -17,22 +16,17 @@ from app.presentation.screens.source_select_screen import SourceSelectScreen
 from app.presentation.utils.image_cache import get_image
 from app.presentation.utils.badge import badge_tag
 
+_SEARCH_IMAGE_EXECUTOR = ThreadPoolExecutor(max_workers=8)
+
 
 class SearchScreen(Screen):
-    DEFAULT_CSS = """
-    #search-loading {
-        height: 1;
-        width: 100%;
-        content-align: center middle;
-    }
-    """
-
     def __init__(self, service: AnimeService, on_watch: Callable[..., None] | None = None, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._service = service
         self._on_watch = on_watch
         self._debounce_timer = None
         self._search_history: list[str] = []
+        self._search_task: asyncio.Task | None = None
 
     BINDINGS = [("escape", "back", "Voltar")]
 
@@ -91,12 +85,14 @@ class SearchScreen(Screen):
         query = inp.value.strip()
         if not query:
             return
+        if self._search_task and not self._search_task.done():
+            self._search_task.cancel()
         self.query_one("#search-loading", LoadingIndicator).display = True
         self.query_one("#results-list", ListView).clear()
-        asyncio.create_task(self._search(query))
+        self._search_task = asyncio.create_task(self._search(query))
 
     def _build_item(self, entry: AnimeEntry) -> Static:
-        ansi = get_image(entry.image, max_width=30) if entry.image else None
+        ansi = get_image(entry.image, max_width=35) if entry.image else None
 
         table = Table.grid(padding=(0, 2))
         table.add_column(width=ansi.width if ansi else 1)
@@ -138,11 +134,10 @@ class SearchScreen(Screen):
                 if len(self._search_history) > 20:
                     self._search_history = self._search_history[-20:]
 
-            urls = [(entry.image, 30) for entry in entries if entry.image]
+            urls = [(entry.image, 35) for entry in entries if entry.image]
             if urls:
-                with ThreadPoolExecutor(max_workers=8) as ex:
-                    futures = [ex.submit(get_image, url, w) for url, w in urls]
-                    await asyncio.gather(*(asyncio.wrap_future(f) for f in futures))
+                futures = [_SEARCH_IMAGE_EXECUTOR.submit(get_image, url, w) for url, w in urls]
+                await asyncio.gather(*(asyncio.wrap_future(f) for f in futures))
 
             for entry in entries:
                 content = self._build_item(entry)
@@ -151,6 +146,8 @@ class SearchScreen(Screen):
                 list_view.append(item)
             self.query_one("#search-loading", LoadingIndicator).display = False
             list_view.focus()
+        except asyncio.CancelledError:
+            pass
         except Exception as e:
             self.query_one("#search-loading", LoadingIndicator).display = False
             list_view.clear()

@@ -15,6 +15,7 @@ class WatchHistoryService:
             os.path.expanduser("~"), ".anime-feed-reader", "watch_history.json"
         ))
         self._entries: list[WatchHistoryEntry] = []
+        self._dirty = False
         self._load()
 
     def _directory(self) -> Path:
@@ -30,28 +31,6 @@ class WatchHistoryService:
             self._entries = [WatchHistoryEntry(**e) for e in data.get("entries", [])]
         except (json.JSONDecodeError, KeyError, TypeError):
             self._entries = []
-
-    def _save(self) -> None:
-        self._directory().mkdir(parents=True, exist_ok=True)
-        data = {
-            "entries": [
-                {
-                    "anime_title": e.anime_title,
-                    "episode_title": e.episode_title,
-                    "episode_number": e.episode_number,
-                    "episode_link": e.episode_link,
-                    "source_name": e.source_name,
-                    "anime_image": e.anime_image,
-                    "watched_at": e.watched_at,
-                    "season_number": e.season_number,
-                    "source_color": e.source_color,
-                }
-                for e in self._entries
-            ]
-        }
-        tmp_path = self._file_path.with_suffix(".tmp")
-        tmp_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-        os.replace(tmp_path, self._file_path)
 
     def add_entry(
         self,
@@ -76,7 +55,8 @@ class WatchHistoryService:
         )
         with self._lock:
             self._entries.append(entry)
-        self._save()
+            self._dirty = True
+        self._schedule_save()
         return entry
 
     def get_all(self) -> list[WatchHistoryEntry]:
@@ -86,4 +66,40 @@ class WatchHistoryService:
     def clear_all(self) -> None:
         with self._lock:
             self._entries.clear()
-        self._save()
+            self._dirty = True
+        self._schedule_save()
+
+    def _schedule_save(self):
+        if not self._dirty:
+            return
+        threading.Thread(target=self._do_save, daemon=True).start()
+
+    def _do_save(self):
+        with self._lock:
+            if not self._dirty:
+                return
+            entries = list(self._entries)
+            self._dirty = False
+        self._save_entries(entries)
+
+    def _save_entries(self, entries: list[WatchHistoryEntry]) -> None:
+        self._directory().mkdir(parents=True, exist_ok=True)
+        data = {
+            "entries": [
+                {
+                    "anime_title": e.anime_title,
+                    "episode_title": e.episode_title,
+                    "episode_number": e.episode_number,
+                    "episode_link": e.episode_link,
+                    "source_name": e.source_name,
+                    "anime_image": e.anime_image,
+                    "watched_at": e.watched_at,
+                    "season_number": e.season_number,
+                    "source_color": e.source_color,
+                }
+                for e in entries
+            ]
+        }
+        tmp_path = self._file_path.with_suffix(".tmp")
+        tmp_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        os.replace(tmp_path, self._file_path)

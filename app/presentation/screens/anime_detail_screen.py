@@ -3,6 +3,7 @@ import webbrowser
 from typing import Callable
 
 from textual.app import ComposeResult
+from textual.containers import Horizontal
 from textual.screen import Screen
 from textual.widgets import Header, Footer, Static, Tree
 
@@ -12,6 +13,19 @@ from app.presentation.view_models import AnimeVM, EpisodeVM
 
 
 class AnimeDetailScreen(Screen):
+    DEFAULT_CSS = """
+    #detail-body {
+        height: 1fr;
+    }
+    #anime-poster {
+        width: auto;
+        margin-right: 2;
+    }
+    #episodes-tree {
+        width: 1fr;
+    }
+    """
+
     BINDINGS = [("escape", "back", "Voltar")]
 
     def __init__(self, service: AnimeService, anime_vm: AnimeVM, source_name: str = "Detalhes", source_color: str = "", on_watch: Callable[..., None] | None = None, *args, **kwargs):
@@ -25,14 +39,15 @@ class AnimeDetailScreen(Screen):
     def compose(self) -> ComposeResult:
         yield Header()
         yield Static(f"[bold]{self._anime_vm.title}[/]", id="anime-title")
-        yield Static(id="anime-poster")
-        yield Tree("Episódios", id="episodes-tree")
+        with Horizontal(id="detail-body"):
+            yield Static(id="anime-poster")
+            yield Tree("Episódios", id="episodes-tree")
         yield Footer()
 
     def on_mount(self) -> None:
         poster = self.query_one("#anime-poster", Static)
         if self._anime_vm.image:
-            ansi = get_image(self._anime_vm.image, max_width=60)
+            ansi = get_image(self._anime_vm.image, max_width=35)
             if ansi:
                 poster.update(ansi)
 
