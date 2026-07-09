@@ -36,6 +36,18 @@ class AnimesOnlineCC(AnimeSource):
         if not is_safe_url(episode_link, allow_http=True, resolve_dns=False):
             return PlayContext.page(episode_link)
 
+        # tenta resolver melhor opção (ajax FullHD/HLS/blogger) via DooPlay
+        try:
+            from app.infrastructure.sources._dooplay import resolve_dooplay_play_context
+
+            ctx = resolve_dooplay_play_context(
+                episode_link, base_url=self.base_url
+            )
+            if ctx is not None and ctx.url:
+                return ctx
+        except Exception:
+            pass
+
         response = requests.get(episode_link, headers=HEADERS, timeout=20)
         if not validate_response(response):
             return PlayContext.page(episode_link)

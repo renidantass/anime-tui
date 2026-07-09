@@ -152,14 +152,18 @@ def is_unknown_episode_number(value: str | None) -> bool:
 _EP_SUFFIX_RES: list[re.Pattern[str]] = [
     # " - Episódio 12" / " | Ep 3" / ": Episode 1"
     re.compile(
-        r"\s*[\-–—:|·•]\s*(?:epis[oó]dios?|episodes?|eps?\.?|cap\.?|cap[ií]tulos?)\s*[#.:]?\s*\d{1,4}\s*$",
+        r"\s*[\-–—:|·•]\s*(?:epis[oó]dios?|episodes?|eps?\.?|cap\.?|cap[ií]tulos?)\s*[#.:]?\s*\d{1,4}(?:\s+final)?\s*$",
         re.I,
     ),
-    # " Episódio 12" / " Ep 3" no final
+    # " Episódio 12" / " Ep 3" / " ep 22 Final" no final (padrão Anime Yabu)
     re.compile(
-        r"\s+(?:epis[oó]dios?|episodes?|eps?\.?|cap\.?|cap[ií]tulos?)\s*[#.:]?\s*\d{1,4}\s*$",
+        r"\s+(?:epis[oó]dios?|episodes?|eps?\.?|cap\.?|cap[ií]tulos?)\s*[#.:]?\s*\d{1,4}(?:\s+final)?\s*$",
         re.I,
     ),
+    # " ep 22 Final" colado no título sem hífen
+    re.compile(r"\s+ep\s*[#.:]?\s*\d{1,4}(?:\s+final)?\s*$", re.I),
+    # " Final" só após número de episódio já removido (sobra solta)
+    re.compile(r"\s+final\s*$", re.I),
     # " S01E12" no final
     re.compile(r"\s+s\d{1,2}\s*e\s*\d{1,4}\s*$", re.I),
     # " - 12" só se for bem no fim e curto

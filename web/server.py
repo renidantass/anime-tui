@@ -613,10 +613,23 @@ def image_proxy(url: str = Query(..., min_length=1)):
     """Proxy de imagem (evita hotlink / referer bloqueado)."""
     if not is_safe_url(url, allow_http=True, resolve_dns=True):
         raise HTTPException(400, "URL de imagem inválida")
+    # vários CDNs de anime exigem Referer do próprio site
+    referer = ""
+    try:
+        from urllib.parse import urlparse
+
+        p = urlparse(url)
+        if p.scheme and p.netloc:
+            referer = f"{p.scheme}://{p.netloc}/"
+    except Exception:
+        referer = ""
+    headers = {**HEADERS, "Accept": "image/avif,image/webp,image/*,*/*;q=0.8"}
+    if referer:
+        headers["Referer"] = referer
     try:
         r = requests.get(
             url,
-            headers={**HEADERS, "Accept": "image/*,*/*"},
+            headers=headers,
             timeout=15,
             stream=True,
         )
@@ -626,18 +639,40 @@ def image_proxy(url: str = Query(..., min_length=1)):
         r.close()
         raise HTTPException(502, f"Imagem upstream {r.status_code}")
 
-    content_type = r.headers.get("Content-Type", "image/jpeg")
-    if not content_type.startswith("image/") and "octet-stream" not in content_type:
-        # ainda pode ser imagem sem content-type correto
-        pass
-
+    content_type = (r.headers.get("Content-Type") or "").split(";")[0].strip().lower()
     data = r.content
     r.close()
     if len(data) > 5 * 1024 * 1024:
         raise HTTPException(413, "Imagem grande demais")
+    if len(data) < 32:
+        raise HTTPException(502, "Imagem vazia")
+
+    # magic bytes — rejeita HTML de 404 disfarçado
+    is_img = (
+        data[:3] == b"\xff\xd8\xff"  # jpeg
+        or data[:8] == b"\x89PNG\r\n\x1a\n"
+        or data[:3] == b"GIF"
+        or (data[:4] == b"RIFF" and b"WEBP" in data[:16])
+        or data[4:8] == b"ftyp"  # avif/heic
+    )
+    if content_type.startswith("text/html") or (
+        not content_type.startswith("image/")
+        and "octet-stream" not in content_type
+        and not is_img
+    ):
+        raise HTTPException(502, "Upstream não retornou imagem")
+
+    if content_type.startswith("image/"):
+        media = content_type
+    elif data[:4] == b"RIFF" and b"WEBP" in data[:16]:
+        media = "image/webp"
+    elif data[:8] == b"\x89PNG\r\n\x1a\n":
+        media = "image/png"
+    else:
+        media = "image/jpeg"
     return Response(
         content=data,
-        media_type=content_type if content_type.startswith("image/") else "image/jpeg",
+        media_type=media,
         headers={"Cache-Control": "public, max-age=86400", "Access-Control-Allow-Origin": "*"},
     )
 
