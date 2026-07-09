@@ -55,8 +55,9 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-log() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
-ok()  { printf '\033[1;32m==>\033[0m %s\n' "$*"; }
+# Mensagens em stderr para não poluir capturas como ROOT="$(resolve_root)"
+log() { printf '\033[1;34m==>\033[0m %s\n' "$*" >&2; }
+ok()  { printf '\033[1;32m==>\033[0m %s\n' "$*" >&2; }
 err() { printf '\033[1;31merror:\033[0m %s\n' "$*" >&2; }
 
 need_cmd() {
