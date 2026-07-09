@@ -67,8 +67,18 @@ need_cmd() {
   fi
 }
 
-# Resolve o diretório do projeto. Se o script for executado via curl|bash
-# (sem repositório local), clona em um diretório temporário.
+# Dir temporário do clone remoto (limpado no EXIT do shell principal).
+# Não pode ser registrado com trap dentro de $() — o subshell apaga o clone
+# antes do cd em main.
+CLEANUP_TMP=""
+
+cleanup_install_tmp() {
+  if [[ -n "${CLEANUP_TMP:-}" && -d "$CLEANUP_TMP" ]]; then
+    rm -rf "$CLEANUP_TMP"
+  fi
+}
+
+# Define ROOT (global). Se curl|bash, clona em tmp e agenda cleanup.
 resolve_root() {
   local script_path="${BASH_SOURCE[0]:-}"
   local candidate=""
@@ -80,30 +90,29 @@ resolve_root() {
   fi
 
   if [[ -n "$candidate" && -f "$candidate/main.py" && -f "$candidate/pyproject.toml" ]]; then
-    printf '%s\n' "$candidate"
+    ROOT="$candidate"
     return 0
   fi
 
   # Já estamos no root do projeto
   if [[ -f "./main.py" && -f "./pyproject.toml" ]]; then
-    pwd
+    ROOT="$(pwd)"
     return 0
   fi
 
   need_cmd git
   local tmp
   tmp="$(mktemp -d "${TMPDIR:-/tmp}/animes-tui-install.XXXXXX")"
-  # shellcheck disable=SC2064
-  trap "rm -rf '$tmp'" EXIT
+  CLEANUP_TMP="$tmp"
+  trap cleanup_install_tmp EXIT
 
   log "Clonando repositório ($REPO_BRANCH)…"
-  # git progress em stderr; só o path do projeto deve ir ao stdout
   git clone --depth 1 --branch "$REPO_BRANCH" "$REPO_URL" "$tmp/repo" >&2
   if [[ ! -d "$tmp/repo" || ! -f "$tmp/repo/main.py" ]]; then
     err "clone falhou ou repositório incompleto em $tmp/repo"
     exit 1
   fi
-  printf '%s\n' "$tmp/repo"
+  ROOT="$tmp/repo"
 }
 
 build_binary() {
@@ -267,11 +276,10 @@ install_binary() {
 }
 
 main() {
-  # Última linha do stdout = path (defesa se algo vazar para stdout)
-  ROOT="$(resolve_root | tail -n 1)"
-  ROOT="${ROOT//$'\r'/}"
-  if [[ -z "$ROOT" || ! -d "$ROOT" ]]; then
-    err "não foi possível resolver o diretório do projeto (ROOT='$ROOT')"
+  # Sem $(): resolve_root define ROOT no shell atual (trap de cleanup funciona)
+  resolve_root
+  if [[ -z "${ROOT:-}" || ! -d "$ROOT" ]]; then
+    err "não foi possível resolver o diretório do projeto (ROOT='${ROOT:-}')"
     exit 1
   fi
   cd "$ROOT"
