@@ -7,9 +7,17 @@ from dataclasses import dataclass
 
 
 class SourceEntry:
-    def __init__(self, name: str, identifier: str, color: str,
-                 has_search: bool = True, has_details: bool = True,
-                 available: bool = True, error: str = ""):
+    def __init__(
+        self,
+        name: str,
+        identifier: str,
+        color: str,
+        has_search: bool = True,
+        has_details: bool = True,
+        available: bool = True,
+        error: str = "",
+        base_url: str = "",
+    ):
         self.name = name
         self.identifier = identifier
         self.color = color
@@ -17,6 +25,16 @@ class SourceEntry:
         self.has_details = has_details
         self.available = available
         self.error = error
+        self.base_url = base_url
+        # health / uptime
+        self.status: str = "unknown"  # unknown | checking | online | offline
+        self.latency_ms: float | None = None
+        self.last_check_at: str = ""
+        self.checks_total: int = 0
+        self.checks_ok: int = 0
+        self.uptime_percent: float | None = None
+        # janela recente de checks (True=ok) — não serializar bruto
+        self._recent: list[bool] = []
 
 
 class SourceInfo:
@@ -34,11 +52,13 @@ class EpisodeEntry:
         image: str,
         date: str,
         sources: list[SourceInfo] | None = None,
+        number: str = "",
     ):
         self.title = title
         self.image = image
         self.date = date
         self.sources = sources or []
+        self.number = number or ""
 
 
 class AnimeEntry:

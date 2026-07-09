@@ -73,14 +73,15 @@ class Goyabu(AnimeSource):
 
             ep_type = article.find(class_='ep-type')
             ep_text = ep_type.get_text().strip() if ep_type else ''
-            episode_number = get_episode_number(ep_text)
-
             title_el = article.find(class_='title')
             raw_title = title_el.get_text().strip() if title_el else ''
+            episode_number = get_episode_number(ep_text, episode_link)
+            if episode_number in {"?", "0"}:
+                episode_number = get_episode_number(raw_title, episode_link)
 
             retrieved.append(Episode(
                 number=episode_number,
-                title=raw_title,
+                title=raw_title or ep_text,
                 link=episode_link,
                 video_src='',
                 image=image,
@@ -139,12 +140,12 @@ class Goyabu(AnimeSource):
             if not link_el:
                 continue
             ep_text = link_el.get_text().strip()
-            ep_match = re.search(r'\d+', ep_text)
-            ep_num = ep_match.group() if ep_match else '?'
+            href = link_el['href']
+            ep_num = get_episode_number(ep_text, href)
             episodes.append(Episode(
                 number=ep_num,
                 title=ep_text,
-                link=link_el['href'],
+                link=href,
                 video_src='',
             ))
 
@@ -153,9 +154,8 @@ class Goyabu(AnimeSource):
                 text = a.get_text().strip()
                 if not text:
                     continue
-                ep_match = re.search(r'\d+', text)
-                ep_num = ep_match.group() if ep_match else '?'
                 href = a.get('href', '')
+                ep_num = get_episode_number(text, href)
                 if href:
                     episodes.append(Episode(
                         number=ep_num,

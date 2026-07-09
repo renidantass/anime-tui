@@ -11,7 +11,11 @@ from app.domain import Anime, Episode, PlayContext, Season
 from app.infrastructure.security import is_safe_url
 from app.infrastructure.sources._base import AnimeSource
 from app.infrastructure.sources._playback import context_from_embed
-from app.infrastructure.sources._utils import HEADERS, validate_response
+from app.infrastructure.sources._utils import (
+    HEADERS,
+    extract_episode_number,
+    validate_response,
+)
 
 
 class AnimesOnlineCC(AnimeSource):
@@ -27,11 +31,6 @@ class AnimesOnlineCC(AnimeSource):
     urls = {
         "last_episodes": "https://animesonlinecc.to/episodio/",
     }
-
-    def __get_episode_number(self, title: str) -> str:
-        episode_separator = 'Episodio'
-        separated_title = title.rpartition(episode_separator)
-        return separated_title[-1].strip() or '0'
 
     def get_play_context(self, episode_link: str) -> PlayContext:
         if not is_safe_url(episode_link, allow_http=True, resolve_dns=False):
@@ -80,7 +79,7 @@ class AnimesOnlineCC(AnimeSource):
             if title_a is None:
                 continue
             episode_link = title_a['href']
-            episode_number = self.__get_episode_number(raw_title)
+            episode_number = extract_episode_number(raw_title, episode_link)
 
             poster = episode.find('div', 'poster')
             image = ''
@@ -167,8 +166,7 @@ class AnimesOnlineCC(AnimeSource):
                 text = a.get_text().strip()
                 if not href or not text:
                     continue
-                ep_match = re.search(r'\d+', text)
-                ep_num = ep_match.group() if ep_match else '?'
+                ep_num = extract_episode_number(text, href)
                 episodes.append(Episode(number=ep_num, title=text, link=href, video_src=''))
 
             if episodes:
@@ -182,8 +180,7 @@ class AnimesOnlineCC(AnimeSource):
                     continue
                 href = a['href']
                 text = a.get_text().strip()
-                ep_match = re.search(r'\d+', text)
-                ep_num = ep_match.group() if ep_match else '?'
+                ep_num = extract_episode_number(text, href)
                 ep_list.append(Episode(number=ep_num, title=text, link=href, video_src=''))
             if ep_list:
                 seasons.append(Season(number=1, episodes=ep_list))

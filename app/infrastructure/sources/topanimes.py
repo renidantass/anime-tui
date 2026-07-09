@@ -385,16 +385,19 @@ class Topanimes(AnimeSource):
 
             data_div = article.find('div', 'data')
             title_text = ''
-            episode_number = '0'
+            episode_number = '?'
             if data_div:
                 strong = data_div.find('strong')
                 if strong:
                     title_text = strong.get_text().strip()
                 h3 = data_div.find('h3')
-                if h3:
-                    ep_text = h3.get_text().strip()
-                    episode_number = get_episode_number(ep_text)
-                    title_text = f"{title_text} - {ep_text}"
+                ep_text = h3.get_text().strip() if h3 else ''
+                if ep_text:
+                    title_text = f"{title_text} - {ep_text}".strip(" -")
+                episode_number = get_episode_number(ep_text, title_text, episode_link)
+
+            if episode_number in {"?", "0"}:
+                episode_number = get_episode_number(title_text, episode_link)
 
             retrieved.append(Episode(
                 number=episode_number,
@@ -464,12 +467,12 @@ class Topanimes(AnimeSource):
                 if not a:
                     continue
                 ep_text = a.get_text().strip()
-                ep_match = re.search(r'\d+', ep_text)
-                ep_num = ep_match.group() if ep_match else '?'
+                href = a['href']
+                ep_num = get_episode_number(ep_text, href)
                 episodes.append(Episode(
                     number=ep_num,
                     title=ep_text,
-                    link=a['href'],
+                    link=href,
                     video_src='',
                 ))
             if episodes:

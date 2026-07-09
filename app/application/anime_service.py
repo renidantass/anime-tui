@@ -8,6 +8,10 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from app.application.dtos import AnimeDetail, AnimeEntry, EpisodeEntry, EpisodeItem, SeasonDetail, SourceEntry, SourceInfo
 from app.application.interfaces import ISourceDiscovery
 from app.domain import Anime, Episode, PlayContext
+from app.infrastructure.sources._utils import (
+    extract_episode_number,
+    is_unknown_episode_number,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -42,9 +46,8 @@ class AnimeService:
         self._reset_enabled()
 
     def _reset_enabled(self):
-        self._enabled = set()
-        for e in self._sd.get_enabled_entries():
-            self._enabled.add(e.identifier)
+        # por padrão todas as descobertas começam ativas (mesmo se offline no 1º check)
+        self._enabled = {e.identifier for e in self._sd.get_all_entries()}
 
     def set_enabled(self, identifier: str, enabled: bool):
         if enabled:
@@ -61,8 +64,23 @@ class AnimeService:
     def is_source_available(self, identifier: str) -> bool:
         return self._sd.is_available(identifier)
 
+    def refresh_source_health(self, identifier: str | None = None) -> list[SourceEntry]:
+        """Revalida disponibilidade/latência/uptime das fontes."""
+        sd = self._sd
+        if hasattr(sd, "check_one") and identifier:
+            entry = sd.check_one(identifier)
+            return [entry] if entry else []
+        if hasattr(sd, "check_all"):
+            return list(sd.check_all(mark_checking=True))
+        return self.get_all_source_entries()
+
     def _get_enabled_list(self) -> list[SourceEntry]:
-        return [e for e in self._sd.get_enabled_entries() if e.identifier in self._enabled]
+        # ativa pelo usuário E online no último health check
+        return [
+            e
+            for e in self._sd.get_all_entries()
+            if e.identifier in self._enabled and e.available
+        ]
 
     @staticmethod
     def _normalize(text: str) -> str:
@@ -105,12 +123,20 @@ class AnimeService:
                 continue
             for ep in episodes:
                 key = self._ep_key(ep)
+                number = ep.number if not is_unknown_episode_number(ep.number) else ""
+                if not number:
+                    number = extract_episode_number(ep.title, ep.link, default="")
                 if key not in entries:
                     entries[key] = EpisodeEntry(
                         title=ep.title,
                         image=ep.image,
                         date=ep.date,
+                        number=number,
                     )
+                else:
+                    # preenche número se a primeira fonte não tinha
+                    if is_unknown_episode_number(entries[key].number) and number:
+                        entries[key].number = number
                 if not any(s.name == name for s in entries[key].sources):
                     entries[key].sources.append(
                         SourceInfo(name=name, video_src=ep.video_src, link=ep.link, color=entry.color)
@@ -198,6 +224,28 @@ class AnimeService:
             seasons=seasons,
         )
 
+    def get_play_context_from_source(
+        self, episode_link: str, source_name: str
+    ) -> PlayContext | None:
+        """Resolve playback apenas com o reader da fonte indicada (por nome)."""
+        if not episode_link or not source_name:
+            return None
+        for e in self._get_enabled_list():
+            if e.name != source_name:
+                continue
+            try:
+                reader = self._sd.get_reader(e.identifier)
+                if not reader:
+                    return None
+                ctx = reader.get_play_context(episode_link)
+                return ctx if ctx and ctx.url else None
+            except Exception as ex:
+                logger.warning(
+                    "Falha ao obter play_context de %s: %s", source_name, ex
+                )
+                return None
+        return None
+
     def get_play_context(
         self, episode_link: str, preferred_source: str | None = None
     ) -> PlayContext | None:
@@ -218,14 +266,10 @@ class AnimeService:
                 return None
 
         if preferred_source:
-            for e in sources:
-                if e.name == preferred_source:
-                    try:
-                        result = fetch(e)
-                    except Exception:
-                        result = None
-                    if result:
-                        return result
+            # só essa fonte — evita reader A em link de B retornando page() “válida”
+            only = self.get_play_context_from_source(episode_link, preferred_source)
+            if only:
+                return only
 
         futures = {_get_executor().submit(fetch, e): e for e in sources}
         for future in as_completed(futures):

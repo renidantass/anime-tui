@@ -234,10 +234,19 @@ class HomeScreen(Screen):
     def _record_history(self, entry: EpisodeEntry, src: SourceInfo) -> None:
         if not self._on_watch:
             return
+        from app.infrastructure.sources._utils import (
+            extract_episode_number,
+            normalize_watch_titles,
+        )
+
+        number = getattr(entry, "number", "") or ""
+        if not number or number in {"?", "0"}:
+            number = extract_episode_number(entry.title, src.link)
+        anime_t, ep_t, ep_n = normalize_watch_titles(entry.title, entry.title, number)
         self._on_watch(
-            anime_title=entry.title,
-            episode_title=entry.title,
-            episode_number="?",
+            anime_title=anime_t,
+            episode_title=ep_t,
+            episode_number=ep_n,
             episode_link=src.link,
             source_name=src.name,
             anime_image=entry.image,
