@@ -79,6 +79,7 @@ RELATION_LABELS_PT: dict[str, str] = {
 
 _MEDIA_FIELDS = """
   id
+  idMal
   title {
     romaji
     english
@@ -313,6 +314,7 @@ class AniListRelation:
 @dataclass(slots=True)
 class AniListMedia:
     id: int
+    id_mal: int | None = None
     title_romaji: str = ""
     title_english: str = ""
     title_native: str = ""
@@ -376,6 +378,7 @@ class AniListMedia:
         genres_pt = [GENRE_LABELS_PT.get(g, g) for g in (self.genres or [])]
         data = {
             "id": self.id,
+            "mal_id": self.id_mal,
             "title": self.primary_title,
             "titles": self.search_titles(),
             "title_romaji": self.title_romaji,
@@ -597,8 +600,17 @@ def _parse_media(m: dict | None, *, with_relations: bool = False) -> AniListMedi
                 )
             )
 
+    mal_raw = m.get("idMal")
+    try:
+        id_mal = int(mal_raw) if mal_raw is not None else None
+    except (TypeError, ValueError):
+        id_mal = None
+    if id_mal is not None and id_mal <= 0:
+        id_mal = None
+
     return AniListMedia(
         id=int(m.get("id") or 0),
+        id_mal=id_mal,
         title_romaji=(title.get("romaji") or "").strip(),
         title_english=(title.get("english") or "").strip(),
         title_native=(title.get("native") or "").strip(),

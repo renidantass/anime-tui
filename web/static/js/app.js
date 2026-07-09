@@ -1968,6 +1968,16 @@ async function playEpisode(payload) {
       );
     }
 
+    // IDs p/ AniSkip (timestamps reais da opening por episódio)
+    const malId =
+      payload.mal_id ||
+      state.detailMeta?.mal_id ||
+      null;
+    const anilistId =
+      payload.anilist_id ||
+      state.detailMeta?.id ||
+      null;
+    const epNum = Number(labels.number);
     await openPlayer({
       playable: res.playable,
       streamUrl: res.stream_url,
@@ -1978,6 +1988,9 @@ async function playEpisode(payload) {
       title: labels.animeTitle,
       episodeLabel: [labels.episodeLine, usedSource].filter(Boolean).join(" · "),
       episodeLink: res.episode_link || body.episode_link,
+      episodeNumber: Number.isFinite(epNum) && epNum > 0 ? epNum : labels.number,
+      malId: malId ? Number(malId) : null,
+      anilistId: anilistId ? Number(anilistId) : null,
       // se o player falhar no load, tenta restantes no cliente
       fallbackCandidates: candidates.filter(
         (c) => c.link !== (res.episode_link || body.episode_link)
@@ -1988,6 +2001,7 @@ async function playEpisode(payload) {
         episode_number: body.episode_number,
         anime_image: body.anime_image,
         season_number: body.season_number,
+        mal_id: malId ? Number(malId) : null,
       },
     });
     if (!res.playable) {
