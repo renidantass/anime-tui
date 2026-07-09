@@ -7,9 +7,10 @@ from bs4 import BeautifulSoup
 
 from urllib.parse import quote
 
-from app.domain import Anime, Episode, Season
+from app.domain import Anime, Episode, PlayContext, Season
 from app.infrastructure.security import is_safe_url
 from app.infrastructure.sources._base import AnimeSource
+from app.infrastructure.sources._playback import context_from_embed
 from app.infrastructure.sources._utils import HEADERS, validate_response
 
 
@@ -32,23 +33,31 @@ class AnimesOnlineCC(AnimeSource):
         separated_title = title.rpartition(episode_separator)
         return separated_title[-1].strip() or '0'
 
-    def get_video_src(self, episode_link: str) -> str:
+    def get_play_context(self, episode_link: str) -> PlayContext:
         if not is_safe_url(episode_link, allow_http=True, resolve_dns=False):
-            return episode_link
+            return PlayContext.page(episode_link)
+
         response = requests.get(episode_link, headers=HEADERS, timeout=20)
         if not validate_response(response):
-            return episode_link
+            return PlayContext.page(episode_link)
+
         soup = BeautifulSoup(response.text, self.default_analyzer)
         playex = soup.find('div', 'playex')
         if playex is None:
-            return episode_link
+            return PlayContext.page(episode_link, referer=self.base_url + "/")
         iframe = playex.iframe
         if iframe is None:
-            return episode_link
-        src = iframe.get('src', episode_link) or episode_link
-        if is_safe_url(src, allow_http=True, resolve_dns=False):
-            return src
-        return episode_link
+            return PlayContext.page(episode_link, referer=self.base_url + "/")
+        src = iframe.get('src', '') or ''
+        if not src or not is_safe_url(src, allow_http=True, resolve_dns=False):
+            return PlayContext.page(episode_link, referer=self.base_url + "/")
+
+        return context_from_embed(
+            src,
+            page_url=episode_link,
+            default_referer=f"{self.base_url}/",
+            default_origin=self.base_url,
+        )
 
     def get_last_episodes(self) -> list[Episode]:
         retrieved: list[Episode] = []

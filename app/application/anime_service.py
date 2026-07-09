@@ -7,7 +7,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from app.application.dtos import AnimeDetail, AnimeEntry, EpisodeEntry, EpisodeItem, SeasonDetail, SourceEntry, SourceInfo
 from app.application.interfaces import ISourceDiscovery
-from app.domain import Anime, Episode
+from app.domain import Anime, Episode, PlayContext
 
 logger = logging.getLogger(__name__)
 
@@ -198,18 +198,24 @@ class AnimeService:
             seasons=seasons,
         )
 
-    def get_video_src(self, episode_link: str, preferred_source: str | None = None) -> str:
+    def get_play_context(
+        self, episode_link: str, preferred_source: str | None = None
+    ) -> PlayContext | None:
+        """Resolve playback (URL + headers) pela fonte — sem heurística no player."""
         sources = self._get_enabled_list()
         if not sources:
-            return ""
+            return None
 
-        def fetch(entry: SourceEntry) -> str:
+        def fetch(entry: SourceEntry) -> PlayContext | None:
             try:
                 reader = self._sd.get_reader(entry.identifier)
-                return reader.get_video_src(episode_link) if reader else ""
+                if not reader:
+                    return None
+                ctx = reader.get_play_context(episode_link)
+                return ctx if ctx and ctx.url else None
             except Exception as e:
-                logger.warning("Falha ao obter video_src de %s: %s", entry.name, e)
-                return ""
+                logger.warning("Falha ao obter play_context de %s: %s", entry.name, e)
+                return None
 
         if preferred_source:
             for e in sources:
@@ -217,7 +223,7 @@ class AnimeService:
                     try:
                         result = fetch(e)
                     except Exception:
-                        result = ""
+                        result = None
                     if result:
                         return result
 
@@ -226,4 +232,9 @@ class AnimeService:
             result = future.result()
             if result:
                 return result
-        return ""
+        return None
+
+    def get_video_src(self, episode_link: str, preferred_source: str | None = None) -> str:
+        """Compat: só a URL. Prefira :meth:`get_play_context`."""
+        ctx = self.get_play_context(episode_link, preferred_source)
+        return ctx.url if ctx else ""

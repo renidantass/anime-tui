@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -12,40 +12,20 @@ logger = logging.getLogger(__name__)
 _CONFIG_DIR = Path.home() / ".config" / "animes-tui"
 _CONFIG_FILE = _CONFIG_DIR / "config.json"
 
-PLAYER_BROWSER = "browser"
-PLAYER_MPV = "mpv"
-PLAYER_VLC = "vlc"
-PLAYER_GSTREAMER = "gstreamer"
-PLAYER_AUTO = "auto"  # primeiro disponível: mpv → vlc → gstreamer → download
-
-VALID_PLAYERS = frozenset({
-    PLAYER_BROWSER,
-    PLAYER_MPV,
-    PLAYER_VLC,
-    PLAYER_GSTREAMER,
-    PLAYER_AUTO,
-})
-
-PLAYER_LABELS = {
-    PLAYER_AUTO: "Automático",
-    PLAYER_MPV: "mpv",
-    PLAYER_VLC: "VLC",
-    PLAYER_GSTREAMER: "GStreamer",
-    PLAYER_BROWSER: "Navegador",
-}
-
-# Ordem de preferência no modo automático
-PLAYER_AUTO_ORDER = (PLAYER_MPV, PLAYER_VLC, PLAYER_GSTREAMER)
+# Default alinhado com player.registry.PLAYER_AUTO (evita import circular).
+_DEFAULT_PLAYER = "auto"
 
 
 @dataclass
 class Config:
     enabled_sources: list[str] | None = None
-    player: str = PLAYER_AUTO
+    player: str = _DEFAULT_PLAYER
 
     def __post_init__(self) -> None:
-        if self.player not in VALID_PLAYERS:
-            self.player = PLAYER_AUTO
+        if not self.player or not isinstance(self.player, str):
+            self.player = _DEFAULT_PLAYER
+        else:
+            self.player = self.player.strip() or _DEFAULT_PLAYER
         if self.enabled_sources is not None:
             self.enabled_sources = list(self.enabled_sources)
 
@@ -59,7 +39,7 @@ class Config:
     def from_dict(data: dict) -> Config:
         return Config(
             enabled_sources=data.get("enabled_sources"),
-            player=data.get("player", PLAYER_AUTO),
+            player=data.get("player", _DEFAULT_PLAYER),
         )
 
 

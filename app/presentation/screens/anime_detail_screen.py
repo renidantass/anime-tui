@@ -85,16 +85,28 @@ class AnimeDetailScreen(Screen):
         ep_vm: EpisodeVM | None = event.node.data
         if ep_vm is None:
             return
-        self.loading = True
+        # Não usar self.loading: cobre a tela e esconde feedback.
         asyncio.create_task(self._fetch_video(ep_vm))
+
+    def _notify_from_worker(self, msg: str, severity: str = "information") -> None:
+        try:
+            loop = getattr(self.app, "_loop", None)
+            if loop is not None and loop.is_running():
+                loop.call_soon_threadsafe(
+                    lambda: self.notify(msg, severity=severity, timeout=2)
+                )
+            else:
+                self.notify(msg, severity=severity, timeout=2)
+        except Exception:
+            pass
 
     async def _fetch_video(self, ep_vm: EpisodeVM) -> None:
         try:
-            video_src = await asyncio.to_thread(
-                self._service.get_video_src, ep_vm.link, self._source_name
+            self.notify("Buscando fonte do vídeo…", timeout=2)
+            play_ctx = await asyncio.to_thread(
+                self._service.get_play_context, ep_vm.link, self._source_name
             )
-            if not video_src:
-                self.loading = False
+            if not play_ctx or not play_ctx.url:
                 self.notify("Fonte de vídeo não encontrada", severity="error")
                 return
 
@@ -114,7 +126,7 @@ class AnimeDetailScreen(Screen):
                 start_at = float(self._get_progress(ep_vm.link) or 0.0)
 
             def on_status(msg: str) -> None:
-                self.app.call_from_thread(self.notify, msg, timeout=2)
+                self._notify_from_worker(msg)
 
             def on_position(pos: float, dur: float) -> None:
                 if self._on_progress:
@@ -122,12 +134,11 @@ class AnimeDetailScreen(Screen):
 
             ok = await asyncio.to_thread(
                 open_video,
-                video_src,
+                play_ctx,
                 status=on_status,
                 start_at=start_at,
                 on_position=on_position if self._on_progress else None,
             )
-            self.loading = False
             if ok:
                 if start_at > 1:
                     self.notify(f"Retomando em {int(start_at)}s", severity="information")
@@ -136,5 +147,4 @@ class AnimeDetailScreen(Screen):
             else:
                 self.notify("Não foi possível abrir o vídeo", severity="error")
         except Exception as e:
-            self.loading = False
             self.notify(f"Erro: {e}", severity="error")

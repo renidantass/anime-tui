@@ -6,9 +6,10 @@ import re
 import requests
 from bs4 import BeautifulSoup
 
-from app.domain import Anime, Episode, Season
+from app.domain import Anime, Episode, PlayContext, Season
 from app.infrastructure.security import is_safe_url, quote_path_segment
 from app.infrastructure.sources._base import AnimeSource
+from app.infrastructure.sources._playback import context_from_embed
 from app.infrastructure.sources._utils import HEADERS, validate_response, get_episode_number
 
 
@@ -27,21 +28,31 @@ class Goyabu(AnimeSource):
         except Exception:
             return ''
 
-    def get_video_src(self, episode_link: str) -> str:
+    def get_play_context(self, episode_link: str) -> PlayContext:
         if not is_safe_url(episode_link, allow_http=True, resolve_dns=False):
-            return episode_link
+            return PlayContext.page(episode_link)
+
         response = requests.get(episode_link, headers=HEADERS, timeout=20)
         if not validate_response(response):
-            return episode_link
+            return PlayContext.page(episode_link)
+
         soup = BeautifulSoup(response.text, self.default_analyzer)
         tab = soup.find('button', class_='player-tab')
+        embed = ''
         if tab:
             encrypted = tab.get('data-blogger-url-encrypted', '')
             if encrypted:
-                decoded = self.__decode_video_url(encrypted)
-                if decoded and is_safe_url(decoded, allow_http=True, resolve_dns=False):
-                    return decoded
-        return episode_link
+                embed = self.__decode_video_url(encrypted)
+
+        if embed and is_safe_url(embed, allow_http=True, resolve_dns=False):
+            return context_from_embed(
+                embed,
+                page_url=episode_link,
+                default_referer=f"{self.base_url}/",
+                default_origin=self.base_url,
+            )
+
+        return PlayContext.page(episode_link, referer=f"{self.base_url}/")
 
     def get_last_episodes(self) -> list[Episode]:
         retrieved: list[Episode] = []

@@ -179,25 +179,34 @@ class HistoryScreen(Screen):
     def on_list_view_selected(self, event: ListView.Selected) -> None:
         entry: HistoryVM | None = event.item.meta.get("entry")
         if entry and entry.episode_link:
-            self.loading = True
+            # Não usar self.loading: cobre a tela e esconde o status.
             asyncio.create_task(self._resume_entry(entry))
+
+    def _status_from_worker(self, msg: str) -> None:
+        try:
+            loop = getattr(self.app, "_loop", None)
+            if loop is not None and loop.is_running():
+                loop.call_soon_threadsafe(self._set_status, msg)
+            else:
+                self._set_status(msg)
+        except Exception:
+            pass
 
     async def _resume_entry(self, entry: HistoryVM) -> None:
         start_at = entry.resume_at()
         self._set_status("[yellow]Preparando retomada…[/]")
         try:
-            video_src = await asyncio.to_thread(
-                self._service.get_video_src,
+            play_ctx = await asyncio.to_thread(
+                self._service.get_play_context,
                 entry.episode_link,
                 entry.source_name,
             )
-            if not video_src:
-                self.loading = False
+            if not play_ctx or not play_ctx.url:
                 self._set_status("[red]Não foi possível obter o vídeo[/]")
                 return
 
             def on_status(msg: str) -> None:
-                self.app.call_from_thread(self._set_status, f"[yellow]{msg}[/]")
+                self._status_from_worker(f"[yellow]{msg}[/]")
 
             def on_position(pos: float, dur: float) -> None:
                 if self._on_progress:
@@ -205,12 +214,11 @@ class HistoryScreen(Screen):
 
             ok = await asyncio.to_thread(
                 open_video,
-                video_src,
+                play_ctx,
                 status=on_status,
                 start_at=start_at,
                 on_position=on_position if self._on_progress else None,
             )
-            self.loading = False
             if ok:
                 if start_at > 1:
                     self._set_status(
@@ -221,5 +229,4 @@ class HistoryScreen(Screen):
             else:
                 self._set_status("[red]Não foi possível abrir o vídeo[/]")
         except Exception as e:
-            self.loading = False
             self._set_status(f"[red]Erro: {e}[/]")

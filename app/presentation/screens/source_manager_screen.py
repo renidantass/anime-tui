@@ -4,32 +4,15 @@ from textual.screen import Screen
 from textual.widgets import Header, Footer, Static, Checkbox, RadioSet, RadioButton
 
 from app.application.anime_service import AnimeService
-from app.infrastructure.config import (
+from app.infrastructure.config import Config, load as load_config, save as save_config
+from app.infrastructure.player import (
     PLAYER_AUTO,
     PLAYER_BROWSER,
-    PLAYER_GSTREAMER,
     PLAYER_LABELS,
-    PLAYER_MPV,
-    PLAYER_VLC,
-    Config,
-    load as load_config,
-    save as save_config,
+    install_hint,
+    is_player_available,
+    selectable_backends,
 )
-from app.infrastructure.player import is_player_available
-
-_PLAYER_OPTIONS = (
-    PLAYER_AUTO,
-    PLAYER_MPV,
-    PLAYER_VLC,
-    PLAYER_GSTREAMER,
-    PLAYER_BROWSER,
-)
-
-_INSTALL_HINT = {
-    PLAYER_MPV: "sudo apt install mpv",
-    PLAYER_VLC: "sudo apt install vlc",
-    PLAYER_GSTREAMER: "sudo apt install gstreamer1.0-tools gstreamer1.0-plugins-good",
-}
 
 
 class SourceManagerScreen(Screen):
@@ -98,21 +81,21 @@ class SourceManagerScreen(Screen):
                 id="player-hint",
             )
             with RadioSet(id="player-radios"):
-                for key in _PLAYER_OPTIONS:
-                    available = is_player_available(key)
-                    if key in (PLAYER_BROWSER, PLAYER_AUTO):
+                for backend in selectable_backends():
+                    available = backend.is_available()
+                    if backend.id in (PLAYER_BROWSER, PLAYER_AUTO):
                         suffix = (
                             ""
-                            if key == PLAYER_BROWSER or available
+                            if backend.id == PLAYER_BROWSER or available
                             else " [dim](nenhum detectado)[/]"
                         )
                     else:
                         suffix = "" if available else " [red](não instalado)[/]"
-                    label = f"{PLAYER_LABELS[key]}{suffix}"
+                    label = f"{backend.label}{suffix}"
                     yield RadioButton(
                         label,
-                        value=(self._config.player == key),
-                        id=f"player-{key}",
+                        value=(self._config.player == backend.id),
+                        id=f"player-{backend.id}",
                     )
             yield Static(self._player_status_text(), id="player-status")
 
@@ -150,7 +133,7 @@ class SourceManagerScreen(Screen):
         except Exception:
             pass
         if player not in (PLAYER_AUTO, PLAYER_BROWSER) and not is_player_available(player):
-            hint = _INSTALL_HINT.get(player, f"instale {player}")
+            hint = install_hint(player)
             self.notify(
                 f"{PLAYER_LABELS.get(player, player)} não está instalado. {hint}",
                 severity="warning",

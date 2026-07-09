@@ -222,11 +222,9 @@ class HomeScreen(Screen):
     def _open_episode(self, entry: EpisodeEntry) -> None:
         if len(entry.sources) == 1:
             src = entry.sources[0]
-            self.loading = True
             asyncio.create_task(self._play_source(src, entry))
         elif len(entry.sources) > 1:
             def do_open(selected):
-                self.loading = True
                 asyncio.create_task(self._play_source(selected, entry))
 
             self.app.push_screen(
@@ -252,15 +250,26 @@ class HomeScreen(Screen):
         except Exception:
             pass
 
+    def _status_from_worker(self, msg: str) -> None:
+        """Atualiza status a partir de thread do player (não bloqueia o worker)."""
+        try:
+            loop = getattr(self.app, "_loop", None)
+            if loop is not None and loop.is_running():
+                loop.call_soon_threadsafe(self._set_play_status, msg)
+            else:
+                self._set_play_status(msg)
+        except Exception:
+            pass
+
     async def _play_source(self, src: SourceInfo, entry: EpisodeEntry) -> None:
+        # NÃO usar self.loading: cobre a tela inteira e esconde o status.
         self._set_play_status("[yellow]Preparando vídeo…[/]")
         try:
-            vs = src.video_src
-            if not vs:
-                self._set_play_status("[yellow]Buscando fonte do vídeo…[/]")
-                vs = await asyncio.to_thread(self._service.get_video_src, src.link, src.name)
-            if not vs:
-                self.loading = False
+            self._set_play_status("[yellow]Buscando fonte do vídeo…[/]")
+            play_ctx = await asyncio.to_thread(
+                self._service.get_play_context, src.link, src.name
+            )
+            if not play_ctx or not play_ctx.url:
                 self._set_play_status("[red]Fonte de vídeo não encontrada[/]")
                 return
 
@@ -271,7 +280,7 @@ class HomeScreen(Screen):
                 start_at = float(self._get_progress(src.link) or 0.0)
 
             def on_status(msg: str) -> None:
-                self.app.call_from_thread(self._set_play_status, f"[yellow]{msg}[/]")
+                self._status_from_worker(f"[yellow]{msg}[/]")
 
             def on_position(pos: float, dur: float) -> None:
                 if self._on_progress:
@@ -279,12 +288,11 @@ class HomeScreen(Screen):
 
             ok = await asyncio.to_thread(
                 open_video,
-                vs,
+                play_ctx,
                 status=on_status,
                 start_at=start_at,
                 on_position=on_position if self._on_progress else None,
             )
-            self.loading = False
             if ok:
                 msg = "[green]Player aberto[/]"
                 if start_at > 1:
@@ -293,7 +301,6 @@ class HomeScreen(Screen):
             else:
                 self._set_play_status("[red]Não foi possível abrir o vídeo[/]")
         except Exception as e:
-            self.loading = False
             self._set_play_status(f"[red]Erro: {e}[/]")
 
     def on_list_view_selected(self, event: ListView.Selected) -> None:

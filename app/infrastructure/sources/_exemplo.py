@@ -9,10 +9,13 @@ COMO USAR:
 
 Se o health-check falhar (site offline), a fonte aparece como [OFFLINE]
 no gerenciador de fontes e não é usada até ficar disponível.
+
+PLAYBACK:
+- Implemente get_play_context() com url + referer/origin da *sua* fonte.
+- O player não conhece CDNs de sites; tudo de anti-leech fica aqui.
 """
 
-
-from app.domain import Anime, Episode
+from app.domain import Anime, Episode, PlayContext
 from app.infrastructure.sources._base import AnimeSource
 from app.infrastructure.sources._utils import HEADERS, validate_response, get_episode_number
 
@@ -20,7 +23,7 @@ from app.infrastructure.sources._utils import HEADERS, validate_response, get_ep
 class MeuSite(AnimeSource):
     # ── Metadados ──────────────────────────────────────────
     name = "MeuSite"              # Nome exibido na interface
-    identifier = "meusite"        # Slug único (sem espaços)
+    identifier = "meusite"        # slug único (sem espaços)
     base_url = "https://meusite.com"  # URL para health-check automático
     color = ""                    # Cor da badge (ex: "#e67e22"). Vazio = gerada automaticamente.
 
@@ -56,8 +59,15 @@ class MeuSite(AnimeSource):
     def get_anime_details(self, link: str) -> Anime:
         return Anime(title='', rating='', link=link)
 
-    # ── Opcional: URL do vídeo ─────────────────────────────
-    def get_video_src(self, episode_link: str) -> str:
-        # Retorna a URL que o navegador deve abrir.
-        # Se não implementar, abre a própria página do episódio.
-        return episode_link
+    # ── Playback (fonte é dona do referer/CDN) ─────────────
+    def get_play_context(self, episode_link: str) -> PlayContext:
+        # Stream direto:
+        # return PlayContext(
+        #     url="https://cdn…/video.mp4",
+        #     referer=f"{self.base_url}/",
+        #     origin=self.base_url,
+        #     is_direct=True,
+        #     page_url=episode_link,
+        # )
+        # Página (browser fallback):
+        return PlayContext.page(episode_link, referer=f"{self.base_url}/")

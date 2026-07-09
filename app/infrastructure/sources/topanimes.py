@@ -8,7 +8,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 import requests
 from bs4 import BeautifulSoup
 
-from app.domain import Anime, Episode, Season
+from app.domain import Anime, Episode, PlayContext, Season
 from app.infrastructure.security import is_safe_url, quote_path_segment
 from app.infrastructure.sources._base import AnimeSource
 from app.infrastructure.sources._utils import HEADERS, validate_response, get_episode_number
@@ -34,24 +34,25 @@ class Topanimes(AnimeSource):
     has_search = True
     has_details = True
 
-    def get_video_src(self, episode_link: str) -> str:
-        """Extrai stream direto (mp4/m3u8) a partir da página do episódio.
+    def get_play_context(self, episode_link: str) -> PlayContext:
+        """Extrai stream direto (mp4/m3u8) + headers anti-leech do CDN escolhido.
 
-        Preferência: MP4 do incvideo (Ruplay/csst) — host resolve e toca no VLC
-        com Referer do próprio CDN. Evita 1a-1791.com (DNS quebra com frequência)
-        e HLS do OdaCDN (segmentos fake em qooglecdn).
+        Preferência: MP4 do incvideo (Ruplay/csst). Evita 1a-1791.com e HLS
+        OdaCDN (segmentos fake). O *referer* fica no PlayContext — o player
+        não precisa conhecer hosts desta fonte.
         """
         if not is_safe_url(episode_link, allow_http=True, resolve_dns=False):
-            return episode_link
+            return PlayContext.page(episode_link)
+
         response = requests.get(episode_link, headers=HEADERS, timeout=20)
         if not validate_response(response):
-            return episode_link
+            return PlayContext.page(episode_link)
 
         soup = BeautifulSoup(response.text, self.default_analyzer)
         candidates = self._collect_iframe_srcs(soup)
         if not candidates:
             logger.warning("Topanimes: nenhum iframe em %s", episode_link)
-            return episode_link
+            return PlayContext.page(episode_link, referer=episode_link)
 
         candidates = sorted(candidates, key=self._iframe_priority)
 
@@ -59,7 +60,8 @@ class Topanimes(AnimeSource):
         session.headers.update(HEADERS)
         session.headers["Referer"] = episode_link
 
-        ranked: list[tuple[int, str]] = []
+        # (score, stream_url, referer) — retorna no primeiro MP4 playable
+        best: tuple[int, str, str] | None = None
 
         for src in candidates:
             try:
@@ -90,18 +92,27 @@ class Topanimes(AnimeSource):
             elif playable:
                 score = 2
             else:
-                score = 9
                 logger.debug("Topanimes: stream duvidoso %s…", resolved[:60])
-                continue  # não devolve URL que o VLC não abre
+                continue
 
-            ranked.append((score, resolved))
+            if best is None or score < best[0]:
+                best = (score, resolved, probe_ref)
+            # MP4 estável (incvideo etc.): não perde tempo nos demais iframes
+            if score == 0:
+                break
 
-        if ranked:
-            ranked.sort(key=lambda x: x[0])
-            best = ranked[0][1]
-            logger.info("Topanimes: stream (prio=%s) %s…", ranked[0][0], best[:80])
-            return best
-        return episode_link
+        if best:
+            score, stream_url, best_ref = best
+            logger.info("Topanimes: stream (prio=%s) %s…", score, stream_url[:80])
+            return PlayContext(
+                url=stream_url,
+                referer=best_ref,
+                origin=self.base_url,
+                is_direct=True,
+                page_url=episode_link,
+                cache_key=stream_url,
+            )
+        return PlayContext.page(episode_link, referer=episode_link)
 
     @staticmethod
     def _host_resolves(url: str) -> bool:
