@@ -7,7 +7,7 @@ Cliente TUI para assistir animes no terminal.
 Requisitos: `git`, [`uv`](https://docs.astral.sh/uv/) e Python ≥ 3.11.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/renidantass/anime-feed-reader/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/renidantass/anime-tui/main/install.sh | bash
 ```
 
 Isso clona o repositório, gera o binário com PyInstaller e instala em `~/.local/bin/animes-tui`.
@@ -36,15 +36,15 @@ export PATH="$HOME/.local/bin:$PATH"
 ### Instalação local (já clonou o repo)
 
 ```bash
-git clone https://github.com/renidantass/anime-feed-reader.git
-cd anime-feed-reader
+git clone https://github.com/renidantass/anime-tui.git
+cd anime-tui
 ./install.sh
 ```
 
 ## Desinstalação
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/renidantass/anime-feed-reader/main/uninstall.sh | bash
+curl -fsSL https://raw.githubusercontent.com/renidantass/anime-tui/main/uninstall.sh | bash
 ```
 
 Ou, no repositório:

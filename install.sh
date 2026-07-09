@@ -2,7 +2,7 @@
 # Instala animes-tui no usuário (build com PyInstaller → ~/.local/bin).
 #
 # Instalação direta do terminal (sem clonar manualmente):
-#   curl -fsSL https://raw.githubusercontent.com/renidantass/anime-feed-reader/main/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/renidantass/anime-tui/main/install.sh | bash
 #
 # Uso local (já no repositório):
 #   ./install.sh
@@ -11,7 +11,7 @@
 #
 set -euo pipefail
 
-REPO_URL="${ANIMES_TUI_REPO:-https://github.com/renidantass/anime-feed-reader.git}"
+REPO_URL="${ANIMES_TUI_REPO:-https://github.com/renidantass/anime-tui.git}"
 REPO_BRANCH="${ANIMES_TUI_BRANCH:-main}"
 APP_NAME="animes-tui"
 INSTALL_PREFIX="${XDG_BIN_HOME:-$HOME/.local/bin}"
@@ -29,7 +29,7 @@ Opções:
   -h, --help         Esta ajuda
 
 Instalação remota:
-  curl -fsSL https://raw.githubusercontent.com/renidantass/anime-feed-reader/main/install.sh | bash
+  curl -fsSL https://raw.githubusercontent.com/renidantass/anime-tui/main/install.sh | bash
 
 Exemplos locais:
   ./install.sh
@@ -97,7 +97,12 @@ resolve_root() {
   trap "rm -rf '$tmp'" EXIT
 
   log "Clonando repositório ($REPO_BRANCH)…"
-  git clone --depth 1 --branch "$REPO_BRANCH" "$REPO_URL" "$tmp/repo"
+  # git progress em stderr; só o path do projeto deve ir ao stdout
+  git clone --depth 1 --branch "$REPO_BRANCH" "$REPO_URL" "$tmp/repo" >&2
+  if [[ ! -d "$tmp/repo" || ! -f "$tmp/repo/main.py" ]]; then
+    err "clone falhou ou repositório incompleto em $tmp/repo"
+    exit 1
+  fi
   printf '%s\n' "$tmp/repo"
 }
 
@@ -262,7 +267,13 @@ install_binary() {
 }
 
 main() {
-  ROOT="$(resolve_root)"
+  # Última linha do stdout = path (defesa se algo vazar para stdout)
+  ROOT="$(resolve_root | tail -n 1)"
+  ROOT="${ROOT//$'\r'/}"
+  if [[ -z "$ROOT" || ! -d "$ROOT" ]]; then
+    err "não foi possível resolver o diretório do projeto (ROOT='$ROOT')"
+    exit 1
+  fi
   cd "$ROOT"
 
   DIST_DIR="$ROOT/dist"

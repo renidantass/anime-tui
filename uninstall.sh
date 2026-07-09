@@ -7,7 +7,7 @@
 #   ./uninstall.sh --purge          # também apaga config, cache e histórico
 #
 # Remoto:
-#   curl -fsSL https://raw.githubusercontent.com/renidantass/anime-feed-reader/main/uninstall.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/renidantass/anime-tui/main/uninstall.sh | bash
 #   curl -fsSL .../uninstall.sh | bash -s -- --purge
 #
 set -euo pipefail
