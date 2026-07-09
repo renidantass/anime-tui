@@ -22,7 +22,7 @@ class AnimesOnlineCC(AnimeSource):
     has_search = True
     has_details = True
 
-    default_analyzer = 'lxml'
+    default_analyzer = "html.parser"
 
     urls = {
         "last_episodes": "https://animesonlinecc.to/episodio/",

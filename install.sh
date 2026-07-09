@@ -1,28 +1,26 @@
 #!/usr/bin/env bash
-# Gera o binário Linux de animes-tui (PyInstaller) e instala no usuário.
+# Instala animes-tui no usuário (build com PyInstaller → ~/.local/bin).
 #
-# Uso:
-#   ./build-and-install.sh              # build + instala em ~/.local/bin
-#   ./build-and-install.sh --build-only # só gera o binário em dist/
-#   ./build-and-install.sh --prefix DIR # outro diretório do usuário
+# Instalação direta do terminal (sem clonar manualmente):
+#   curl -fsSL https://raw.githubusercontent.com/renidantass/anime-feed-reader/main/install.sh | bash
+#
+# Uso local (já no repositório):
+#   ./install.sh
+#   ./install.sh --build-only
+#   ./install.sh --prefix DIR
 #
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$ROOT"
-
+REPO_URL="${ANIMES_TUI_REPO:-https://github.com/renidantass/anime-feed-reader.git}"
+REPO_BRANCH="${ANIMES_TUI_BRANCH:-main}"
 APP_NAME="animes-tui"
-DIST_DIR="$ROOT/dist"
-BUILD_DIR="$ROOT/build"
-BIN_OUT="$DIST_DIR/$APP_NAME"
-# instalação no usuário por padrão (sem root)
 INSTALL_PREFIX="${XDG_BIN_HOME:-$HOME/.local/bin}"
 BUILD_ONLY=0
 SKIP_BUILD=0
 
 usage() {
   cat <<EOF
-Uso: $(basename "$0") [opções]
+Uso: $(basename "${0:-install.sh}") [opções]
 
 Opções:
   --build-only       Apenas gera o binário (não instala)
@@ -30,10 +28,13 @@ Opções:
   --prefix DIR       Destino do binário (padrão: \$HOME/.local/bin)
   -h, --help         Esta ajuda
 
-Exemplos:
-  ./build-and-install.sh
-  ./build-and-install.sh --build-only
-  ./build-and-install.sh --prefix "\$HOME/bin"
+Instalação remota:
+  curl -fsSL https://raw.githubusercontent.com/renidantass/anime-feed-reader/main/install.sh | bash
+
+Exemplos locais:
+  ./install.sh
+  ./install.sh --build-only
+  ./install.sh --prefix "\$HOME/bin"
 EOF
 }
 
@@ -65,6 +66,40 @@ need_cmd() {
   fi
 }
 
+# Resolve o diretório do projeto. Se o script for executado via curl|bash
+# (sem repositório local), clona em um diretório temporário.
+resolve_root() {
+  local script_path="${BASH_SOURCE[0]:-}"
+  local candidate=""
+
+  if [[ -n "$script_path" && "$script_path" != "bash" && "$script_path" != "/dev/stdin" && "$script_path" != "-" ]]; then
+    if [[ -f "$script_path" ]]; then
+      candidate="$(cd "$(dirname "$script_path")" && pwd)"
+    fi
+  fi
+
+  if [[ -n "$candidate" && -f "$candidate/main.py" && -f "$candidate/pyproject.toml" ]]; then
+    printf '%s\n' "$candidate"
+    return 0
+  fi
+
+  # Já estamos no root do projeto
+  if [[ -f "./main.py" && -f "./pyproject.toml" ]]; then
+    pwd
+    return 0
+  fi
+
+  need_cmd git
+  local tmp
+  tmp="$(mktemp -d "${TMPDIR:-/tmp}/animes-tui-install.XXXXXX")"
+  # shellcheck disable=SC2064
+  trap "rm -rf '$tmp'" EXIT
+
+  log "Clonando repositório ($REPO_BRANCH)…"
+  git clone --depth 1 --branch "$REPO_BRANCH" "$REPO_URL" "$tmp/repo"
+  printf '%s\n' "$tmp/repo"
+}
+
 build_binary() {
   need_cmd uv
 
@@ -78,7 +113,7 @@ build_binary() {
   rm -rf "$BUILD_DIR" "$DIST_DIR"
   mkdir -p "$DIST_DIR"
 
-  # Hidden imports comuns com Textual / BS4 / lxml / Pillow
+  # Imports necessários (evitar --collect-all: puxa pygments, setuptools, etc.)
   local hidden=(
     --hidden-import=textual
     --hidden-import=textual.app
@@ -87,11 +122,10 @@ build_binary() {
     --hidden-import=textual.screen
     --hidden-import=rich
     --hidden-import=bs4
-    --hidden-import=lxml
-    --hidden-import=lxml.etree
-    --hidden-import=lxml._elementpath
     --hidden-import=PIL
     --hidden-import=PIL.Image
+    --hidden-import=PIL.ImageEnhance
+    --hidden-import=PIL.ImageFile
     --hidden-import=requests
     --hidden-import=app
     --hidden-import=app.infrastructure.sources.animesonlinecc
@@ -100,15 +134,67 @@ build_binary() {
     --hidden-import=app.infrastructure.sources.source_discovery
   )
 
-  # Dados do Textual (CSS/temas embutidos)
+  # Só CSS/dados do Textual + submódulos do app (fontes)
   local collect=(
-    --collect-all=textual
-    --collect-all=rich
+    --collect-data=textual
     --collect-submodules=app
   )
 
-  log "Gerando binário one-file com PyInstaller…"
-  # shellcheck disable=SC2086
+  # Módulos pesados / irrelevantes para o TUI
+  local exclude=(
+    --exclude-module=pygments
+    --exclude-module=setuptools
+    --exclude-module=pkg_resources
+    --exclude-module=lxml
+    --exclude-module=tkinter
+    --exclude-module=unittest
+    --exclude-module=pydoc
+    --exclude-module=doctest
+    --exclude-module=test
+    --exclude-module=xmlrpc
+    --exclude-module=multiprocessing.popen_spawn_win32
+    # Codecs Pillow raros em capas de anime (JPEG/PNG/WebP bastam)
+    --exclude-module=PIL.AvifImagePlugin
+    --exclude-module=PIL.FtexImagePlugin
+    --exclude-module=PIL.BlpImagePlugin
+    --exclude-module=PIL.McIdasImagePlugin
+    --exclude-module=PIL.MicImagePlugin
+    --exclude-module=PIL.MpegImagePlugin
+    --exclude-module=PIL.Hdf5StubImagePlugin
+    --exclude-module=PIL.DdsImagePlugin
+    --exclude-module=PIL.FliImagePlugin
+    --exclude-module=PIL.GbrImagePlugin
+    --exclude-module=PIL.IcnsImagePlugin
+    --exclude-module=PIL.IcoImagePlugin
+    --exclude-module=PIL.ImImagePlugin
+    --exclude-module=PIL.ImtImagePlugin
+    --exclude-module=PIL.IptcImagePlugin
+    --exclude-module=PIL.PalmImagePlugin
+    --exclude-module=PIL.PcdImagePlugin
+    --exclude-module=PIL.PdfImagePlugin
+    --exclude-module=PIL.PixarImagePlugin
+    --exclude-module=PIL.PsdImagePlugin
+    --exclude-module=PIL.SgiImagePlugin
+    --exclude-module=PIL.SpiderImagePlugin
+    --exclude-module=PIL.SunImagePlugin
+    --exclude-module=PIL.WalImagePlugin
+    --exclude-module=PIL.WmfImagePlugin
+    --exclude-module=PIL.XbmImagePlugin
+    --exclude-module=PIL.XpmImagePlugin
+    --exclude-module=PIL.XVThumbImagePlugin
+    --exclude-module=PIL.ImageTk
+    --exclude-module=PIL.ImageQt
+    --exclude-module=PIL.ImageShow
+    --exclude-module=PIL._imagingtk
+    --exclude-module=PIL._avif
+  )
+
+  local strip_flag=()
+  if command -v strip >/dev/null 2>&1; then
+    strip_flag=(--strip)
+  fi
+
+  log "Gerando binário one-file com PyInstaller (otimizado)…"
   uv run pyinstaller \
     --noconfirm \
     --clean \
@@ -118,8 +204,10 @@ build_binary() {
     --workpath "$BUILD_DIR" \
     --distpath "$DIST_DIR" \
     --specpath "$BUILD_DIR" \
+    "${strip_flag[@]}" \
     "${hidden[@]}" \
     "${collect[@]}" \
+    "${exclude[@]}" \
     "$ROOT/main.py"
 
   if [[ ! -f "$BIN_OUT" ]]; then
@@ -173,6 +261,13 @@ install_binary() {
 }
 
 main() {
+  ROOT="$(resolve_root)"
+  cd "$ROOT"
+
+  DIST_DIR="$ROOT/dist"
+  BUILD_DIR="$ROOT/build"
+  BIN_OUT="$DIST_DIR/$APP_NAME"
+
   echo "animes-tui — build & install (Linux)"
   echo "projeto: $ROOT"
   echo
