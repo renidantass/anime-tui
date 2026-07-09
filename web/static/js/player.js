@@ -9,7 +9,7 @@ let onCloseCb = null;
 let activeOpts = null;
 let retrying = false;
 
-/** Já pulou a OP neste episódio. */
+/** Já pulou a OP neste episódio (reset se voltar antes do fim da OP). */
 let introSkipped = false;
 /** Aguardando o usuário posicionar no fim da OP para salvar. */
 let markIntroMode = false;
@@ -17,13 +17,18 @@ let markIntroMode = false;
  * Intervalo da opening atual: { start, end, source: 'aniskip'|'local' } | null
  */
 let introInterval = null;
+/** Promise da resolução AniSkip em andamento (skip espera ela). */
+let introResolvePromise = null;
+/** Chave do resolve atual (mal|ep|dur) — evita cancelar à toa. */
+let introResolveKey = "";
+/** true depois da 1ª tentativa de resolve (mesmo se falhou). */
+let introResolveSettled = false;
 let skipFetchToken = 0;
 
 const SKIP_INTRO_MIN_DURATION = 180;
 const SKIP_INTRO_HIDE_BEFORE = 2;
 /** Fallback quando não há AniSkip nem marcação local. */
 const SKIP_INTRO_DEFAULT_END = 85;
-const ANISKIP_BASE = "https://api.aniskip.com/v2/skip-times";
 const LOCAL_INTRO_KEY = "anishelf.introEnds";
 
 const $ = (sel) => document.querySelector(sel);
@@ -126,7 +131,35 @@ function ensureSkipButtonStructure() {
 }
 
 /**
- * Busca intervalos de OP no AniSkip (crowd-sourced por MAL id + episódio).
+ * Parseia resposta AniSkip → intervalo de OP, ou null.
+ */
+function parseAniSkipOpPayload(data) {
+  if (!data?.found || !Array.isArray(data.results)) return null;
+  const ops = data.results.filter(
+    (r) => (r.skipType || r.skip_type) === "op" && r.interval
+  );
+  if (!ops.length) return null;
+  // prefere o intervalo de OP mais longo
+  ops.sort((a, b) => {
+    const ea = Number(a.interval.endTime ?? a.interval.end_time) || 0;
+    const sa = Number(a.interval.startTime ?? a.interval.start_time) || 0;
+    const eb = Number(b.interval.endTime ?? b.interval.end_time) || 0;
+    const sb = Number(b.interval.startTime ?? b.interval.start_time) || 0;
+    return eb - sb - (ea - sa);
+  });
+  const best = ops[0];
+  const start = Number(best.interval.startTime ?? best.interval.start_time);
+  const end = Number(best.interval.endTime ?? best.interval.end_time);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start + 5) {
+    return null;
+  }
+  return { start: Math.max(0, start), end };
+}
+
+/**
+ * Busca intervalos de OP no AniSkip via proxy do backend.
+ * O backend tenta episode_length=0 (curinga) e a duração real do vídeo.
+ *
  * @returns {Promise<{start:number,end:number}|null>}
  */
 async function fetchAniSkipOp(malId, episodeNumber, episodeLength) {
@@ -135,38 +168,12 @@ async function fetchAniSkipOp(malId, episodeNumber, episodeLength) {
   if (!Number.isFinite(mal) || mal <= 0) return null;
   if (!Number.isFinite(ep) || ep <= 0) return null;
   const len =
-    Number.isFinite(episodeLength) && episodeLength > 0
-      ? Math.round(episodeLength)
-      : 1440;
-  const types = ["op"];
-  const qs = new URLSearchParams();
-  for (const t of types) qs.append("types[]", t);
-  qs.set("episodeLength", String(len));
-  const url = `${ANISKIP_BASE}/${mal}/${ep}?${qs.toString()}`;
+    Number.isFinite(episodeLength) && episodeLength > 60
+      ? episodeLength
+      : 0;
   try {
-    const res = await fetch(url, { headers: { Accept: "application/json" } });
-    if (!res.ok) return null;
-    const data = await res.json();
-    if (!data?.found || !Array.isArray(data.results)) return null;
-    const ops = data.results.filter(
-      (r) => (r.skipType || r.skip_type) === "op" && r.interval
-    );
-    if (!ops.length) return null;
-    // prefere o intervalo de OP mais longo (marcação mais completa)
-    ops.sort((a, b) => {
-      const ea = Number(a.interval.endTime ?? a.interval.end_time) || 0;
-      const sa = Number(a.interval.startTime ?? a.interval.start_time) || 0;
-      const eb = Number(b.interval.endTime ?? b.interval.end_time) || 0;
-      const sb = Number(b.interval.startTime ?? b.interval.start_time) || 0;
-      return eb - sb - (ea - sa);
-    });
-    const best = ops[0];
-    const start = Number(best.interval.startTime ?? best.interval.start_time);
-    const end = Number(best.interval.endTime ?? best.interval.end_time);
-    if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start + 5) {
-      return null;
-    }
-    return { start: Math.max(0, start), end };
+    const data = await api.skipTimes(mal, ep, len, "op");
+    return parseAniSkipOpPayload(data);
   } catch {
     return null;
   }
@@ -179,34 +186,40 @@ async function resolveIntroInterval({
   episodeLength,
   token,
 }) {
-  // 1) AniSkip (timestamps reais por episódio)
-  const fromApi = await fetchAniSkipOp(malId, episodeNumber, episodeLength);
-  if (token !== skipFetchToken) return; // episódio mudou
-  if (fromApi) {
-    introInterval = { ...fromApi, source: "aniskip" };
+  try {
+    // 1) AniSkip (timestamps reais por episódio)
+    const fromApi = await fetchAniSkipOp(malId, episodeNumber, episodeLength);
+    if (token !== skipFetchToken) return;
+    if (fromApi) {
+      introInterval = { ...fromApi, source: "aniskip" };
+      markIntroMode = false;
+      setSkipIntroLabel("skip");
+      updateSkipIntroButton();
+      return;
+    }
+
+    // 2) Aprendizado local por anime
+    const localEnd = getLocalIntroEnd(animeTitle);
+    if (token !== skipFetchToken) return;
+    if (localEnd != null) {
+      introInterval = { start: 0, end: localEnd, source: "local" };
+      markIntroMode = false;
+      setSkipIntroLabel("skip");
+      updateSkipIntroButton();
+      return;
+    }
+
+    // 3) Sem dados → fallback 85s (effectiveIntroEnd)
+    if (token !== skipFetchToken) return;
+    introInterval = null;
     markIntroMode = false;
     setSkipIntroLabel("skip");
     updateSkipIntroButton();
-    return;
+  } finally {
+    if (token === skipFetchToken) {
+      introResolveSettled = true;
+    }
   }
-
-  // 2) Aprendizado local por anime (você marcou o fim da OP uma vez)
-  const localEnd = getLocalIntroEnd(animeTitle);
-  if (token !== skipFetchToken) return;
-  if (localEnd != null) {
-    introInterval = { start: 0, end: localEnd, source: "local" };
-    markIntroMode = false;
-    setSkipIntroLabel("skip");
-    updateSkipIntroButton();
-    return;
-  }
-
-  // 3) Sem dados: modo “marcar fim da OP”
-  if (token !== skipFetchToken) return;
-  introInterval = null;
-  markIntroMode = false;
-  setSkipIntroLabel("skip");
-  updateSkipIntroButton();
 }
 
 function effectiveIntroEnd(duration) {
@@ -230,14 +243,19 @@ function updateSkipIntroButton() {
   }
   const duration = video.duration;
   const t = video.currentTime || 0;
-  if (
-    introSkipped ||
-    !Number.isFinite(duration) ||
-    duration < SKIP_INTRO_MIN_DURATION ||
-    video.ended
-  ) {
+  if (!Number.isFinite(duration) || duration < SKIP_INTRO_MIN_DURATION || video.ended) {
     setSkipIntroVisible(false);
     return;
+  }
+
+  // Se o usuário voltou para antes do fim da OP, permite pular de novo
+  const endProbe = effectiveIntroEnd(duration);
+  if (
+    introSkipped &&
+    endProbe != null &&
+    t < endProbe - SKIP_INTRO_HIDE_BEFORE
+  ) {
+    introSkipped = false;
   }
 
   // Modo marcar (opcional, clique longo): salvar fim da OP deste anime
@@ -247,17 +265,21 @@ function updateSkipIntroButton() {
     return;
   }
 
-  const end = effectiveIntroEnd(duration);
+  if (introSkipped) {
+    setSkipIntroVisible(false);
+    return;
+  }
+
+  const end = endProbe;
   if (end == null) {
     setSkipIntroVisible(false);
     return;
   }
 
-  const start = Math.max(0, Number(introInterval?.start) || 0);
-  // mostra um pouco antes da OP e durante ela (ou 0→85s no fallback)
-  const showFrom = Math.max(0, start - 3);
+  // Visível desde o começo do ep até o fim da OP (mesmo se a OP começar tarde,
+  // ex.: cold open 0–88s + opening 88–179s — o botão precisa aparecer já no 0).
   setSkipIntroLabel("skip");
-  setSkipIntroVisible(t >= showFrom && t < end - SKIP_INTRO_HIDE_BEFORE);
+  setSkipIntroVisible(t >= 0 && t < end - SKIP_INTRO_HIDE_BEFORE);
 }
 
 function toastSkip(msg) {
@@ -276,7 +298,7 @@ function toastSkip(msg) {
   }
 }
 
-function skipIntro() {
+async function skipIntro() {
   const video = $("#video");
   if (!video) return;
   const duration = video.duration;
@@ -302,15 +324,24 @@ function skipIntro() {
     return;
   }
 
+  // Espera AniSkip/meta se ainda estiver buscando (evita pular 85s cedo demais)
+  if (!introResolveSettled && introResolvePromise) {
+    toastSkip("Buscando abertura…");
+    try {
+      await introResolvePromise;
+    } catch {
+      /* ignore */
+    }
+  }
+
   const end = effectiveIntroEnd(duration);
   if (end == null) {
-    // ep curto demais até para o padrão 85s
     setSkipIntroVisible(false);
     return;
   }
 
   const target = Math.min(end, Math.max(0, duration - 5));
-  const usedDefault = !introInterval;
+  const src = introInterval?.source || "default";
   try {
     video.currentTime = target;
   } catch {
@@ -318,8 +349,14 @@ function skipIntro() {
   }
   introSkipped = true;
   setSkipIntroVisible(false);
-  if (usedDefault) {
+  if (src === "default") {
     toastSkip(`Opening sem marcação · pulou ${Math.round(target)}s`);
+  } else if (src === "aniskip") {
+    const m = Math.floor(target / 60);
+    const s = Math.round(target % 60);
+    toastSkip(`Abertura pulada · ${m}:${String(s).padStart(2, "0")}`);
+  } else if (src === "local") {
+    toastSkip(`Abertura pulada · ${Math.round(target)}s`);
   }
   video.play().catch(() => {});
   reportProgress(false);
@@ -329,51 +366,102 @@ async function resolveMalIdIfNeeded(animeTitle, knownMal) {
   if (knownMal && Number(knownMal) > 0) return Number(knownMal);
   const title = String(animeTitle || "").trim();
   if (!title || title.length < 2) return null;
-  try {
-    const meta = await api.meta(title);
-    const mal = meta?.mal_id;
-    if (mal && Number(mal) > 0) {
-      if (activeOpts) {
-        activeOpts.malId = Number(mal);
-        activeOpts.playMeta = {
-          ...(activeOpts.playMeta || {}),
-          mal_id: Number(mal),
-        };
+  // tenta título completo e versão enxuta (sem "Episódio N")
+  const variants = [
+    title,
+    title.replace(/\s*[-–—:|]\s*epis[oó]dio\s*\d+.*$/i, "").trim(),
+    title.replace(/\s+ep\s*\d+.*$/i, "").trim(),
+  ].filter((t, i, arr) => t && arr.indexOf(t) === i);
+  for (const q of variants) {
+    try {
+      const meta = await api.meta(q);
+      const mal = meta?.mal_id;
+      if (mal && Number(mal) > 0) {
+        if (activeOpts) {
+          activeOpts.malId = Number(mal);
+          activeOpts.playMeta = {
+            ...(activeOpts.playMeta || {}),
+            mal_id: Number(mal),
+          };
+        }
+        return Number(mal);
       }
-      return Number(mal);
+    } catch {
+      /* tenta próxima variante */
     }
-  } catch {
-    /* meta opcional */
   }
   return null;
 }
 
-function scheduleIntroResolve() {
+function parseEpisodeNumberLoose(value) {
+  if (value == null || value === "") return null;
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+    return Math.floor(value);
+  }
+  const s = String(value);
+  const m = s.match(/(?:epis[oó]dio|ep)\s*[#.:]?\s*(\d{1,4})/i) || s.match(/\b(\d{1,4})\b/);
+  if (!m) return null;
+  const n = Number(m[1]);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+function scheduleIntroResolve({ force = false } = {}) {
   const video = $("#video");
-  const token = ++skipFetchToken;
-  const episodeNumber =
-    activeOpts?.episodeNumber ||
-    activeOpts?.playMeta?.episode_number ||
-    null;
+  const episodeNumber = parseEpisodeNumberLoose(
+    activeOpts?.episodeNumber ??
+      activeOpts?.playMeta?.episode_number ??
+      activeOpts?.episodeLabel ??
+      activeOpts?.title
+  );
   const animeTitle = activeOpts?.title || activeOpts?.playMeta?.anime_title || "";
   const episodeLength =
     video && Number.isFinite(video.duration) && video.duration > 0
       ? video.duration
       : activeOpts?.episodeLength || null;
-
   const knownMal = activeOpts?.malId || activeOpts?.playMeta?.mal_id || null;
 
-  (async () => {
-    const malId = await resolveMalIdIfNeeded(animeTitle, knownMal);
-    if (token !== skipFetchToken) return;
-    await resolveIntroInterval({
-      malId,
-      episodeNumber,
-      animeTitle,
-      episodeLength,
-      token,
-    });
+  const key = `${knownMal || animeTitle}|${episodeNumber || "?"}|${
+    episodeLength ? Math.round(episodeLength) : 0
+  }`;
+
+  // já resolvendo / resolvido com a mesma chave — reutiliza
+  if (!force && introResolveKey === key && introResolvePromise) {
+    return introResolvePromise;
+  }
+  // se já temos AniSkip e só a duração mudou um pouco, não joga fora
+  if (
+    !force &&
+    introInterval?.source === "aniskip" &&
+    introResolveSettled &&
+    introResolveKey &&
+    introResolveKey.startsWith(`${knownMal || animeTitle}|${episodeNumber || "?"}|`)
+  ) {
+    return introResolvePromise || Promise.resolve();
+  }
+
+  const token = ++skipFetchToken;
+  introResolveKey = key;
+  introResolveSettled = false;
+
+  introResolvePromise = (async () => {
+    try {
+      const malId = await resolveMalIdIfNeeded(animeTitle, knownMal);
+      if (token !== skipFetchToken) return;
+      await resolveIntroInterval({
+        malId,
+        episodeNumber,
+        animeTitle,
+        episodeLength,
+        token,
+      });
+    } finally {
+      if (token === skipFetchToken) {
+        introResolveSettled = true;
+      }
+    }
   })();
+
+  return introResolvePromise;
 }
 
 export function initPlayer({ onClose } = {}) {
@@ -383,7 +471,7 @@ export function initPlayer({ onClose } = {}) {
   $("#btn-skip-intro")?.addEventListener("click", (e) => {
     e.preventDefault();
     e.stopPropagation();
-    skipIntro();
+    skipIntro().catch(() => {});
   });
   // clique longo: marcar fim da OP manualmente (salva para o anime)
   let markHoldTimer = null;
@@ -421,7 +509,7 @@ export function initPlayer({ onClose } = {}) {
       }
       if (!$("#btn-skip-intro")?.hidden || markIntroMode) {
         e.preventDefault();
-        skipIntro();
+        skipIntro().catch(() => {});
       }
     }
   });
@@ -441,10 +529,18 @@ export function initPlayer({ onClose } = {}) {
   video?.addEventListener("seeked", updateSkipIntroButton);
 }
 
+function setVideoReady(ready) {
+  const video = $("#video");
+  if (!video) return;
+  video.classList.toggle("is-ready", !!ready);
+}
+
 function showLoading(show, msg) {
   const el = $("#player-loading");
   if (!el) return;
   el.hidden = !show;
+  // esconde o <video> no load → some o spinner preto nativo do HTML5
+  if (show) setVideoReady(false);
   const p = el.querySelector("p");
   if (p && msg) p.textContent = msg;
   else if (p && show) p.textContent = "Abrindo vídeo…";
@@ -459,6 +555,7 @@ function showFallback(url) {
     a.style.display = url ? "" : "none";
   }
   showLoading(false);
+  setVideoReady(false);
   setSkipIntroVisible(false);
 }
 
@@ -511,6 +608,7 @@ export function closePlayer() {
     video.pause();
     video.removeAttribute("src");
     video.load();
+    setVideoReady(false);
   }
   currentEpisodeLink = "";
   activeOpts = null;
@@ -518,6 +616,9 @@ export function closePlayer() {
   introSkipped = false;
   markIntroMode = false;
   introInterval = null;
+  introResolvePromise = null;
+  introResolveKey = "";
+  introResolveSettled = false;
   skipFetchToken += 1;
   setSkipIntroVisible(false);
   if (modal) modal.hidden = true;
@@ -619,6 +720,7 @@ async function attachStream(opts) {
 
   const onReady = () => {
     showLoading(false);
+    setVideoReady(true);
     if (startAt > 2) {
       const seek = () => {
         try {
@@ -688,6 +790,9 @@ export async function openPlayer(opts) {
   introSkipped = false;
   markIntroMode = false;
   introInterval = null;
+  introResolvePromise = null;
+  introResolveKey = "";
+  introResolveSettled = false;
   skipFetchToken += 1;
   setSkipIntroVisible(false);
   ensureSkipButtonStructure();
@@ -714,7 +819,7 @@ export async function openPlayer(opts) {
     introSkipped = true;
   }
 
-  // tenta resolver AniSkip cedo (com length estimado); re-resolve no metadata
+  // resolve AniSkip em paralelo com o stream (skip espera se clicar cedo)
   scheduleIntroResolve();
 
   await attachStream(activeOpts);

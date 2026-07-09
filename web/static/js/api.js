@@ -51,6 +51,15 @@ export const api = {
     if (id != null && id !== "") q.set("id", String(id));
     return request(`/api/meta?${q.toString()}`);
   },
+  /** Timestamps de OP/ED (AniSkip) via proxy do backend. */
+  skipTimes: (malId, episode, episodeLength = 0, types = "op") => {
+    const q = new URLSearchParams();
+    q.set("mal_id", String(malId));
+    q.set("episode", String(episode));
+    q.set("episode_length", String(episodeLength ?? 0));
+    if (types) q.set("types", types);
+    return request(`/api/skip-times?${q.toString()}`);
+  },
   calendar: (days = 7, checkSources = false) =>
     request(
       `/api/calendar?days=${encodeURIComponent(days)}&check_sources=${

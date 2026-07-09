@@ -210,6 +210,90 @@ def anilist_meta(
     return meta
 
 
+@app.get("/api/skip-times")
+def skip_times(
+    mal_id: int = Query(..., ge=1, description="MyAnimeList ID"),
+    episode: int = Query(..., ge=1, description="Número do episódio"),
+    episode_length: float = Query(
+        0,
+        ge=0,
+        description="Duração do ep em segundos (0 = curinga na API AniSkip)",
+    ),
+    types: str = Query("op", description="Tipos separados por vírgula: op,ed,recap…"),
+):
+    """Proxy AniSkip — timestamps de opening/ending por anime+episódio.
+
+    A API é sensível a ``episode_length``: valores longe da duração real
+    (ex.: 1440 genérico) costumam retornar vazio. Preferir 0 ou a duração
+    medida do vídeo.
+    """
+    type_list = [t.strip() for t in (types or "op").split(",") if t.strip()]
+    if not type_list:
+        type_list = ["op"]
+
+    lengths: list[float] = []
+    lengths.append(0.0)  # curinga — melhor taxa de acerto
+    if episode_length and episode_length > 60:
+        d = float(episode_length)
+        lengths.extend(
+            [
+                d,
+                round(d),
+                round(d) - 1,
+                round(d) + 1,
+                round(d / 10) * 10,
+                round(d / 60) * 60,
+            ]
+        )
+
+    tried: set[int] = set()
+    last_payload: dict | None = None
+    for raw_len in lengths:
+        L = max(0, int(raw_len or 0))
+        if L in tried:
+            continue
+        tried.add(L)
+        params: list[tuple[str, str | int]] = [("episodeLength", L)]
+        for t in type_list:
+            params.append(("types[]", t))
+        try:
+            r = requests.get(
+                f"https://api.aniskip.com/v2/skip-times/{mal_id}/{episode}",
+                params=params,
+                headers={**HEADERS, "Accept": "application/json"},
+                timeout=12,
+            )
+        except requests.RequestException as e:
+            logger.warning("AniSkip request fail: %s", e)
+            continue
+        if r.status_code == 404:
+            continue
+        if r.status_code >= 400:
+            logger.debug("AniSkip HTTP %s: %s", r.status_code, r.text[:120])
+            continue
+        try:
+            payload = r.json()
+        except Exception:
+            continue
+        last_payload = payload if isinstance(payload, dict) else None
+        if isinstance(payload, dict) and payload.get("found") and payload.get("results"):
+            return {
+                "found": True,
+                "mal_id": mal_id,
+                "episode": episode,
+                "episode_length": L,
+                "results": payload.get("results") or [],
+            }
+
+    return {
+        "found": False,
+        "mal_id": mal_id,
+        "episode": episode,
+        "results": [],
+        "message": (last_payload or {}).get("message") or "No skip times found",
+    }
+
+
 @app.get("/api/calendar")
 def release_calendar(
     days: int = Query(7, ge=1, le=14, description="Janela de dias (1–14)"),

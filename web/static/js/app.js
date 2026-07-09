@@ -1930,11 +1930,10 @@ async function playEpisode(payload) {
     return;
   }
 
-  toast(
-    candidates.length > 1
-      ? `Abrindo vídeo (${candidates.length} fontes)…`
-      : "Abrindo vídeo…"
-  );
+  // loading fica só no player (spinner rosa) — sem toast duplicado
+  if (candidates.length > 1) {
+    toast(`Tentando ${candidates.length} fontes…`);
+  }
 
   try {
     const labels = normalizeWatchTitles(
@@ -1969,7 +1968,7 @@ async function playEpisode(payload) {
     }
 
     // IDs p/ AniSkip (timestamps reais da opening por episódio)
-    const malId =
+    let malId =
       payload.mal_id ||
       state.detailMeta?.mal_id ||
       null;
@@ -1977,6 +1976,15 @@ async function playEpisode(payload) {
       payload.anilist_id ||
       state.detailMeta?.id ||
       null;
+    // se ainda não tem MAL (play pela home), resolve antes de abrir o player
+    if (!malId && labels.animeTitle) {
+      try {
+        const meta = await api.meta(labels.animeTitle);
+        if (meta?.mal_id) malId = meta.mal_id;
+      } catch {
+        /* opcional */
+      }
+    }
     const epNum = Number(labels.number);
     await openPlayer({
       playable: res.playable,

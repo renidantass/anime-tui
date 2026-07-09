@@ -850,11 +850,16 @@ class AniListClient:
         if not cleaned:
             return None
 
-        # tenta título limpo e, se ainda for longo, uma versão mais curta
-        queries = [cleaned]
-        short = _short_query(cleaned)
-        if short and short not in queries:
-            queries.append(short)
+        # tenta título limpo, trecho antes de ":", e versão curta
+        queries: list[str] = []
+        for q in (
+            cleaned,
+            cleaned.split(":")[0].strip(),
+            _short_query(cleaned),
+        ):
+            q = (q or "").strip()
+            if q and q not in queries:
+                queries.append(q)
 
         best: AniListMedia | None = None
         best_score = 0.0
@@ -865,7 +870,8 @@ class AniListClient:
                 logger.warning("AniList search falhou (%s): %s", q, e)
                 continue
             for m in hits:
-                score = _title_score(q, m)
+                # score contra a query da busca e o título original limpo
+                score = max(_title_score(q, m), _title_score(cleaned, m))
                 # prefere TV "principal" a OVA/Special/Movie com score parecido
                 score += _format_bonus(m)
                 if score > best_score:
@@ -873,7 +879,8 @@ class AniListClient:
                     best = m
 
         # exige match mínimo pra não enriquecer com obra errada
-        if not best or best_score < 0.55:
+        # (prefixo forte da obra conta: "Rakudai Kenja no Gakuin Musou" ⊂ título longo)
+        if not best or best_score < 0.50:
             return None
         try:
             full = self.get_media(best.id, with_relations=True)
@@ -883,7 +890,7 @@ class AniListClient:
 
 
 def clean_anime_title(title: str) -> str:
-    """Remove ruído de fontes BR (dublado, todos os episódios, etc.)."""
+    """Remove ruído de fontes BR (dublado, episódio N, todos os episódios, etc.)."""
     t = (title or "").strip()
     if not t:
         return ""
@@ -902,6 +909,9 @@ def clean_anime_title(title: str) -> str:
         r"\btemporada\s*\d+\b",
         r"\bseason\s*\d+\b",
         r"\b[(\[]\s*(?:dub|leg|dublado|legendado)\s*[)\]]",
+        # " - Episódio 3" / " Ep 12 Final" no fim do título da fonte
+        r"\s*[\-–—:|·•]?\s*(?:epis[oó]dios?|episodes?|eps?\.?)\s*[#.:]?\s*\d{1,4}(?:\s+final)?\s*$",
+        r"\s+ep\s*[#.:]?\s*\d{1,4}(?:\s+final)?\s*$",
     ]
     for pat in noise:
         t = re.sub(pat, " ", t, flags=re.I)
@@ -912,7 +922,9 @@ def clean_anime_title(title: str) -> str:
 
 def _short_query(title: str) -> str:
     """Primeiros tokens úteis (ajuda quando sobra lixo no título)."""
-    parts = [p for p in _norm(title).split() if len(p) > 1][:6]
+    # prefere trecho antes de ":" (nome principal da obra)
+    head = (title or "").split(":")[0].strip() or (title or "")
+    parts = [p for p in _norm(head).split() if len(p) > 1][:6]
     return " ".join(parts)
 
 
@@ -938,11 +950,29 @@ def _title_score(query: str, media: AniListMedia) -> float:
             continue
         if q == nt:
             return 1.0
+        # prefixo / contido
+        if nt.startswith(q) or q.startswith(nt):
+            best = max(best, 0.92 * min(len(q), len(nt)) / max(len(q), len(nt)))
         if q in nt or nt in q:
             best = max(best, 0.85 * min(len(q), len(nt)) / max(len(q), len(nt)))
         qa, ta = set(q.split()), set(nt.split())
         if qa and ta:
-            best = max(best, len(qa & ta) / max(len(qa), len(ta)))
+            inter = len(qa & ta)
+            # todas as palavras da query estão no título (nome principal ⊂ ficha)
+            if qa <= ta and inter >= 3:
+                best = max(best, 0.72 + 0.2 * (inter / max(len(ta), 1)))
+            else:
+                best = max(best, inter / max(len(qa), len(ta)))
+            # overlap alto no início do título
+            q_toks, t_toks = q.split(), nt.split()
+            pref = 0
+            for a, b in zip(q_toks, t_toks):
+                if a == b:
+                    pref += 1
+                else:
+                    break
+            if pref >= 3:
+                best = max(best, 0.65 + 0.08 * pref)
     return best
 
 
