@@ -2,7 +2,7 @@
 # Instala animes-tui no usuário (build com PyInstaller → ~/.local/bin).
 #
 # Instalação direta do terminal (sem clonar manualmente):
-#   curl -fsSL https://raw.githubusercontent.com/renidantass/anime-tui/main/install.sh | bash
+#   curl -fsSL https://cdn.jsdelivr.net/gh/renidantass/anime-tui@main/install.sh | bash
 #
 # Uso local (já no repositório):
 #   ./install.sh
@@ -29,7 +29,7 @@ Opções:
   -h, --help         Esta ajuda
 
 Instalação remota:
-  curl -fsSL https://raw.githubusercontent.com/renidantass/anime-tui/main/install.sh | bash
+  curl -fsSL https://cdn.jsdelivr.net/gh/renidantass/anime-tui@main/install.sh | bash
 
 Exemplos locais:
   ./install.sh
