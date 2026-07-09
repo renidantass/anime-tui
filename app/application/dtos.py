@@ -118,3 +118,109 @@ class AnimeDetail:
     image: str = ''
     description: str | None = None
     seasons: list[SeasonDetail] | None = None
+
+
+# Use-case: resolução de stream com fallback
+
+
+@dataclass(slots=True)
+class PlayCandidate:
+    name: str
+    link: str
+    color: str = ""
+
+
+@dataclass(slots=True)
+class ResolvedPlay:
+    ctx: "PlayContext | None" = None  # noqa: F821
+    link: str = ""
+    source_name: str = ""
+    source_color: str = ""
+    playable: bool = False
+    tried: list[dict] | None = None
+
+    def __post_init__(self):
+        if self.tried is None:
+            self.tried = []
+
+
+# Use-case: resultado completo de play (orquestração)
+
+
+@dataclass(slots=True)
+class PlayResult:
+    playable: bool
+    stream_url: str | None
+    page_url: str
+    external_url: str | None
+    is_hls: bool
+    start_at: float
+    token: str | None
+    source_name: str
+    source_color: str
+    episode_link: str
+    switched: bool
+    tried: list[dict] | None = None
+
+    def __post_init__(self):
+        if self.tried is None:
+            self.tried = []
+
+
+# Use-case: catálogo de gêneros (resolve contra fontes)
+
+
+@dataclass(slots=True)
+class GenreResolveItem:
+    id: int = 0
+    title: str = ""
+    titles: list[str] | None = None
+    image: str = ""
+    score: int | None = None
+    banner: str = ""
+    season: str = ""
+    season_label: str = ""
+    season_line: str = ""
+    year: int | None = None
+    format: str = ""
+    format_label: str = ""
+    status: str = ""
+    status_label: str = ""
+    episodes: int | None = None
+    studios: list[str] | None = None
+    genres: list[str] | None = None
+    genres_label: list[str] | None = None
+    description: str = ""
+
+    def __post_init__(self):
+        if self.titles is None:
+            self.titles = []
+        if self.studios is None:
+            self.studios = []
+        if self.genres is None:
+            self.genres = []
+        if self.genres_label is None:
+            self.genres_label = []
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "title": self.title,
+            "titles": self.titles,
+            "image": self.image,
+            "score": self.score,
+            "banner": self.banner,
+            "season": self.season,
+            "season_label": self.season_label,
+            "season_line": self.season_line,
+            "year": self.year,
+            "format": self.format,
+            "format_label": self.format_label,
+            "status": self.status,
+            "status_label": self.status_label,
+            "episodes": self.episodes,
+            "studios": self.studios,
+            "genres": self.genres,
+            "genres_label": self.genres_label,
+            "description": self.description,
+        }
