@@ -7,7 +7,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from app.domain.watch_history import WatchHistoryEntry
-from app.infrastructure.sources._utils import is_unknown_episode_number, normalize_watch_titles
+from app.infrastructure.sources._utils import (
+    is_unknown_episode_number,
+    normalize_watch_titles,
+    strip_title_variants,
+)
 
 
 class WatchHistoryService:
@@ -36,11 +40,12 @@ class WatchHistoryService:
         anime, ep, num = normalize_watch_titles(
             anime_title or "", episode_title or "", episode_number or ""
         )
-        anime_key = anime.strip().casefold()
+        # "X" e "X Dublado" contam como o mesmo anime no histórico
+        anime_key = strip_title_variants(anime).strip().casefold()
         if is_unknown_episode_number(num):
             ep_key = ""
         else:
-            ep_key = str(num).strip().casefold()
+            ep_key = str(int(num)) if str(num).strip().isdigit() else str(num).strip().casefold()
         return anime, ep, num or (episode_number or ""), anime_key, ep_key
 
     @staticmethod

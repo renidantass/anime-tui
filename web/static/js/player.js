@@ -32,7 +32,7 @@ function showLoading(show, msg) {
   el.hidden = !show;
   const p = el.querySelector("p");
   if (p && msg) p.textContent = msg;
-  else if (p && show) p.textContent = "Preparando stream…";
+  else if (p && show) p.textContent = "Abrindo vídeo…";
 }
 
 function showFallback(url) {
@@ -121,7 +121,7 @@ async function tryNextCandidate(reason) {
   retrying = true;
   const next = rest[0];
   const remaining = rest.slice(1);
-  showLoading(true, `Fonte falhou — tentando ${next.name || "outra fonte"}…`);
+  showLoading(true, `Fonte falhou · tentando ${next.name || "outra"}…`);
 
   const meta = activeOpts.playMeta || {};
   try {
@@ -266,7 +266,7 @@ export async function openPlayer(opts) {
     fallbackCandidates: [...(opts.fallbackCandidates || [])],
   };
 
-  $("#player-title").textContent = opts.title || "Reproduzindo";
+  $("#player-title").textContent = opts.title || "Tocando";
   $("#player-ep").textContent = opts.episodeLabel || "";
   currentEpisodeLink = opts.episodeLink || "";
 

@@ -38,11 +38,23 @@ class SourceEntry:
 
 
 class SourceInfo:
-    def __init__(self, name: str, video_src: str, link: str, color: str = ""):
+    def __init__(
+        self,
+        name: str,
+        video_src: str,
+        link: str,
+        color: str = "",
+        variant: str = "",
+        title: str = "",
+    ):
         self.name = name
         self.video_src = video_src
         self.link = link
         self.color = color
+        # dublado | legendado | original — p/ menu de áudio na UI
+        self.variant = variant or ""
+        # título bruto da listagem (ex.: "Foo Dublado - Ep 3")
+        self.title = title or ""
 
 
 class EpisodeEntry:
@@ -68,11 +80,15 @@ class AnimeEntry:
         rating: str,
         image: str,
         sources: list[SourceInfo] | None = None,
+        anilist_id: int | None = None,
+        meta: dict | None = None,
     ):
         self.title = title
         self.rating = rating
         self.image = image
         self.sources = sources or []
+        self.anilist_id = anilist_id
+        self.meta = meta or {}
 
 
 # Use-case: detalhes do anime

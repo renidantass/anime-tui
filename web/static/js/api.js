@@ -31,6 +31,32 @@ export const api = {
   health: () => request("/api/health"),
   episodes: () => request("/api/episodes"),
   search: (q) => request(`/api/search?q=${encodeURIComponent(q)}`),
+  genres: () => request("/api/genres"),
+  genreCatalog: (genre, page = 1, perPage = 20) =>
+    request(
+      `/api/genres/catalog?genre=${encodeURIComponent(genre)}&page=${page}&per_page=${perPage}`
+    ),
+  genreResolve: (items) =>
+    request("/api/genres/resolve", {
+      method: "POST",
+      body: JSON.stringify({ items }),
+    }),
+  browseGenre: (genre, page = 1, perPage = 12) =>
+    request(
+      `/api/genres/browse?genre=${encodeURIComponent(genre)}&page=${page}&per_page=${perPage}`
+    ),
+  meta: (title = "", id = null) => {
+    const q = new URLSearchParams();
+    if (title) q.set("title", title);
+    if (id != null && id !== "") q.set("id", String(id));
+    return request(`/api/meta?${q.toString()}`);
+  },
+  calendar: (days = 7, checkSources = false) =>
+    request(
+      `/api/calendar?days=${encodeURIComponent(days)}&check_sources=${
+        checkSources ? "true" : "false"
+      }`
+    ),
   anime: (link) => request(`/api/anime?link=${encodeURIComponent(link)}`),
   play: (body) =>
     request("/api/play", { method: "POST", body: JSON.stringify(body) }),

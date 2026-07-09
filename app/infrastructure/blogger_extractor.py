@@ -18,6 +18,11 @@ import requests
 
 from app.infrastructure.security import is_safe_url, require_safe_url
 from app.infrastructure.sources._utils import HEADERS
+from app.infrastructure.stream_quality import (
+    blogger_stream_rank,
+    height_from_itag,
+    is_progressive_itag,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -183,9 +188,25 @@ def extract_streams(url_or_token: str, *, session: requests.Session | None = Non
 
 
 def extract_best_url(url_or_token: str, *, session: requests.Session | None = None) -> str:
-    """Retorna a melhor URL de stream (itag mais alto, ex.: 22 > 18)."""
+    """Retorna a URL de maior qualidade (altura real, não itag numérico).
+
+    Preferência: progressive MP4 (áudio+vídeo) na maior resolução
+    (ex.: 720p/itag 22 em vez de 360p/itag 18; nunca 240p/itag 36 só porque
+    o número do itag é maior).
+    """
     streams = extract_streams(url_or_token, session=session)
-    best = max(streams, key=lambda s: s.itag)
+    best = max(
+        streams,
+        key=lambda s: blogger_stream_rank(itag=s.itag, url=s.url, mime=s.mime),
+    )
+    h = height_from_itag(best.itag)
+    logger.info(
+        "Blogger: escolhido itag=%s (~%sp, progressive=%s) entre %d formato(s)",
+        best.itag,
+        h or "?",
+        is_progressive_itag(best.itag),
+        len(streams),
+    )
     safe = require_safe_url(best.url, allow_http=False, resolve_dns=True)
     if not safe:
         raise ValueError("Stream Blogger rejeitado por segurança")

@@ -12,12 +12,27 @@ from app.domain import Anime, Episode, PlayContext, Season
 from app.infrastructure.security import is_safe_url, quote_path_segment
 from app.infrastructure.sources._base import AnimeSource
 from app.infrastructure.sources._utils import HEADERS, validate_response, get_episode_number
+from app.infrastructure.stream_quality import (
+    height_from_url,
+    media_url_rank,
+    pick_best_labeled,
+    pick_best_url,
+)
 
 logger = logging.getLogger(__name__)
 
-# JW Player: sources: [{"file":"URL", ...}]
+# JW Player: sources: [{"file":"URL", "label":"720p", ...}]
 _JW_FILE_RE = re.compile(
     r'["\']file["\']\s*:\s*["\'](https?://[^"\']+)["\']',
+    re.IGNORECASE,
+)
+# objeto source JW com file:"url" (aspas opcionais na chave; label no mesmo objeto)
+_JW_SOURCE_OBJ_RE = re.compile(
+    r'\{[^{}]*?["\']?file["\']?\s*:\s*["\'](https?://[^"\']+)["\'][^{}]*?\}',
+    re.IGNORECASE | re.DOTALL,
+)
+_JW_LABEL_IN_OBJ = re.compile(
+    r'["\']?label["\']?\s*:\s*["\']([^"\']+)["\']',
     re.IGNORECASE,
 )
 _MEDIA_URL_RE = re.compile(
@@ -60,8 +75,9 @@ class Topanimes(AnimeSource):
         session.headers.update(HEADERS)
         session.headers["Referer"] = episode_link
 
-        # (score, stream_url, referer) — retorna no primeiro MP4 playable
-        best: tuple[int, str, str] | None = None
+        # rank maior = melhor (qualidade + tipo). Avalia todos os players
+        # playable para não ficar no 360p se o 1080p está em outro iframe.
+        best: tuple[tuple, str, str] | None = None
 
         for src in candidates:
             try:
@@ -82,28 +98,34 @@ class Topanimes(AnimeSource):
                 continue
 
             probe_ref = self._probe_referer_for(src, resolved, episode_link)
-            is_mp4 = ".mp4" in resolved.lower()
             playable = self._stream_looks_playable(
                 resolved, session=session, referer=probe_ref
             )
-
-            if playable and is_mp4:
-                score = 0
-            elif playable:
-                score = 2
-            else:
+            if not playable:
                 logger.debug("Topanimes: stream duvidoso %s…", resolved[:60])
                 continue
 
-            if best is None or score < best[0]:
-                best = (score, resolved, probe_ref)
-            # MP4 estável (incvideo etc.): não perde tempo nos demais iframes
-            if score == 0:
-                break
+            # iframe priority (menor = CDN mais confiável) + qualidade do arquivo
+            iframe_bonus = max(0, 10 - self._iframe_priority(src))
+            q = media_url_rank(resolved)
+            rank = (q[0], iframe_bonus, q[1], q[2], q[3])
+
+            if best is None or rank > best[0]:
+                best = (rank, resolved, probe_ref)
+                logger.debug(
+                    "Topanimes: candidato ~%sp rank=%s %s…",
+                    height_from_url(resolved) or "?",
+                    rank,
+                    resolved[:70],
+                )
 
         if best:
-            score, stream_url, best_ref = best
-            logger.info("Topanimes: stream (prio=%s) %s…", score, stream_url[:80])
+            rank, stream_url, best_ref = best
+            logger.info(
+                "Topanimes: melhor stream ~%sp %s…",
+                height_from_url(stream_url) or "?",
+                stream_url[:80],
+            )
             return PlayContext(
                 url=stream_url,
                 referer=best_ref,
@@ -336,25 +358,43 @@ class Topanimes(AnimeSource):
             return None
 
         text = resp.text
-        # JW sources: [{"file":"..."}]
+
         def _clean(u: str) -> str:
             return u.replace("\\/", "/").rstrip("/")
 
+        # 1) objetos JW com label de qualidade (Alibaba, Ruplay, etc.)
+        labeled: list[tuple[str, str]] = []
+        for m in _JW_SOURCE_OBJ_RE.finditer(text):
+            url = _clean(m.group(1))
+            if not url.startswith("http"):
+                continue
+            obj = m.group(0)
+            lm = _JW_LABEL_IN_OBJ.search(obj)
+            label = (lm.group(1) if lm else "") or ""
+            labeled.append((url, label))
+
+        if labeled:
+            best = pick_best_labeled(labeled)
+            if best:
+                logger.info(
+                    "Topanimes JW: %d source(s) → ~%sp %s…",
+                    len(labeled),
+                    height_from_url(best) or height_from_url(labeled[0][0]) or "?",
+                    best[:80],
+                )
+                return best
+
+        # 2) só "file":"url" sem label
         files = [_clean(u) for u in _JW_FILE_RE.findall(text)]
         if files:
-            files_sorted = sorted(
-                files,
-                key=lambda u: (0 if ".mp4" in u.lower() else 1, u),
-            )
-            return files_sorted[0]
+            best = pick_best_url(files)
+            if best:
+                return best
 
+        # 3) qualquer mp4/m3u8 no HTML
         media = [_clean(u) for u in _MEDIA_URL_RE.findall(text)]
         if media:
-            media_sorted = sorted(
-                media,
-                key=lambda u: (0 if ".mp4" in u.lower() else 1, u),
-            )
-            return media_sorted[0]
+            return pick_best_url(media)
 
         return None
 

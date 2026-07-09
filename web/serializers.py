@@ -15,12 +15,19 @@ from app.domain.watch_history import WatchHistoryEntry
 
 
 def source_info(s: SourceInfo) -> dict:
-    return {
+    out = {
         "name": s.name,
         "video_src": s.video_src or "",
         "link": s.link or "",
         "color": s.color or "",
     }
+    variant = getattr(s, "variant", "") or ""
+    title = getattr(s, "title", "") or ""
+    if variant:
+        out["variant"] = variant
+    if title:
+        out["title"] = title
+    return out
 
 
 def episode_entry(e: EpisodeEntry) -> dict:
@@ -34,12 +41,35 @@ def episode_entry(e: EpisodeEntry) -> dict:
 
 
 def anime_entry(a: AnimeEntry) -> dict:
-    return {
+    out = {
         "title": a.title,
         "rating": a.rating or "",
         "image": a.image or "",
         "sources": [source_info(s) for s in a.sources],
     }
+    anilist_id = getattr(a, "anilist_id", None)
+    meta = getattr(a, "meta", None) or {}
+    if anilist_id:
+        out["anilist_id"] = anilist_id
+    if meta:
+        # campos úteis na UI de cards / gênero
+        for key in (
+            "season_line",
+            "season_label",
+            "year",
+            "format_label",
+            "status_label",
+            "status",
+            "score",
+            "episodes",
+            "studios",
+            "genres_label",
+            "banner",
+            "description",
+        ):
+            if key in meta and meta[key] not in (None, "", []):
+                out[key] = meta[key]
+    return out
 
 
 def episode_item(ep: EpisodeItem) -> dict:

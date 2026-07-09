@@ -160,6 +160,164 @@ def search(q: str = Query(..., min_length=1)):
     return {"items": [ser.anime_entry(a) for a in results]}
 
 
+class GenreResolveItem(BaseModel):
+    id: int = 0
+    title: str = ""
+    titles: list[str] = Field(default_factory=list)
+    image: str = ""
+    score: int | None = None
+    banner: str = ""
+    season: str = ""
+    season_label: str = ""
+    season_line: str = ""
+    year: int | None = None
+    format: str = ""
+    format_label: str = ""
+    status: str = ""
+    status_label: str = ""
+    episodes: int | None = None
+    studios: list[str] = Field(default_factory=list)
+    genres: list[str] = Field(default_factory=list)
+    genres_label: list[str] = Field(default_factory=list)
+    description: str = ""
+
+
+class GenreResolveRequest(BaseModel):
+    items: list[GenreResolveItem] = Field(default_factory=list)
+
+
+@app.get("/api/genres")
+def list_genres():
+    """Gêneros da AniList (id EN + label PT)."""
+    items = get_service().get_genres()
+    return {"items": items}
+
+
+@app.get("/api/meta")
+def anilist_meta(
+    title: str = Query("", description="Título para buscar na AniList"),
+    id: int | None = Query(None, description="ID AniList (preferencial)"),
+):
+    """
+    Metadados ricos da AniList: season, status, studios, sinopse, franquia
+    (prequel/sequel) e próximo episódio.
+    """
+    if not title.strip() and not id:
+        raise HTTPException(400, "Informe title ou id")
+    meta = get_service().get_anilist_meta(title=title.strip(), anilist_id=id)
+    if not meta:
+        raise HTTPException(404, "Metadados não encontrados na AniList")
+    return meta
+
+
+@app.get("/api/calendar")
+def release_calendar(
+    days: int = Query(7, ge=1, le=14, description="Janela de dias (1–14)"),
+    check_sources: bool = Query(
+        False,
+        description="Se true, cruza cada episódio com as fontes (mais lento)",
+    ),
+):
+    """Calendário de lançamentos. Cruzamento com fontes é opcional."""
+    if check_sources:
+        ensure_sources()
+    result = get_service().get_release_calendar(
+        days=days, check_sources=check_sources
+    )
+    if result.get("error") and not result.get("items"):
+        raise HTTPException(502, f"AniList indisponível: {result['error']}")
+    return result
+
+
+@app.get("/api/genres/catalog")
+def genre_catalog(
+    genre: str = Query(..., min_length=1, description="Gênero AniList, ex.: Action"),
+    page: int = Query(1, ge=1),
+    per_page: int = Query(20, ge=1, le=40),
+):
+    """Catálogo AniList puro (rápido) — sem checar fontes."""
+    result = get_service().catalog_by_genre(
+        genre.strip(), page=page, per_page=per_page
+    )
+    if result.get("error") and not result.get("items"):
+        raise HTTPException(502, f"AniList indisponível: {result['error']}")
+    return result
+
+
+@app.post("/api/genres/resolve")
+def genre_resolve(body: GenreResolveRequest):
+    """
+    Cruza candidatos do catálogo com as fontes ativas.
+    Use em lotes pequenos para a UI ir preenchendo.
+    """
+    ensure_sources()
+    if not body.items:
+        return {"items": []}
+    # evita abuso / timeouts longos
+    batch = body.items[:12]
+    raw = [
+        {
+            "id": it.id,
+            "title": it.title,
+            "titles": it.titles,
+            "image": it.image,
+            "score": it.score,
+            "banner": it.banner,
+            "season": it.season,
+            "season_label": it.season_label,
+            "season_line": it.season_line,
+            "year": it.year,
+            "format": it.format,
+            "format_label": it.format_label,
+            "status": it.status,
+            "status_label": it.status_label,
+            "episodes": it.episodes,
+            "studios": it.studios,
+            "genres": it.genres,
+            "genres_label": it.genres_label,
+            "description": it.description,
+        }
+        for it in batch
+    ]
+    found = get_service().resolve_catalog_items(raw, timeout=12.0)
+    return {
+        "items": [ser.anime_entry(a) for a in found],
+        "checked": len(batch),
+        "found": len(found),
+    }
+
+
+@app.get("/api/genres/browse")
+def browse_genre(
+    genre: str = Query(..., min_length=1, description="Nome do gênero (AniList, ex.: Action)"),
+    page: int = Query(1, ge=1),
+    per_page: int = Query(12, ge=1, le=40),
+):
+    """
+    Compat: AniList + fontes num request.
+    Prefira /catalog + /resolve para UX progressiva.
+    """
+    ensure_sources()
+    result = get_service().browse_by_genre(
+        genre.strip(),
+        page=page,
+        per_page=per_page,
+        max_candidates=min(16, per_page + 6),
+    )
+    if result.get("error") and not result.get("items"):
+        raise HTTPException(502, f"AniList indisponível: {result['error']}")
+    return {
+        "genre": result.get("genre") or genre,
+        "label": result.get("label") or genre,
+        "page": result.get("page") or page,
+        "per_page": result.get("per_page") or per_page,
+        "has_next": bool(result.get("has_next")),
+        "anilist_total": result.get("anilist_total"),
+        "candidates_checked": result.get("candidates_checked"),
+        "items": [ser.anime_entry(a) for a in result.get("items") or []],
+    }
+
+
 @app.get("/api/anime")
 def anime_details(link: str = Query(..., min_length=1)):
     ensure_sources()

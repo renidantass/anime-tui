@@ -198,6 +198,94 @@ def is_only_episode_label(text: str) -> bool:
     return bool(_ONLY_EP_LABEL.match((text or "").strip()))
 
 
+# Variações de fonte BR (áudio/qualidade) — NÃO remove temporada (S2, Temporada 2).
+_TITLE_VARIANT_RE = re.compile(
+    r"\b(?:dublado|legendado|audiodescrito)\b"
+    r"|\b(?:dub|leg)\b"
+    r"|[(\[]\s*(?:dub|leg|dublado|legendado|pt[- ]?br|ptbr)\s*[)\]]"
+    r"|\b(?:full\s*)?hd\b"
+    r"|\b\d{3,4}p\b"
+    r"|\b(?:online|assistir|completo)\b",
+    re.I,
+)
+
+_TITLE_HAS_VARIANT_RE = re.compile(
+    r"\b(?:dublado|legendado|audiodescrito|dub|leg)\b"
+    r"|[(\[]\s*(?:dub|leg|dublado|legendado)\s*[)\]]"
+    r"|\b(?:full\s*)?hd\b"
+    r"|\b\d{3,4}p\b",
+    re.I,
+)
+
+
+def strip_title_variants(title: str) -> str:
+    """Remove ruído de variação (Dublado, Legendado, 1080p…) sem tocar em temporada."""
+    t = (title or "").strip()
+    if not t:
+        return ""
+    t = _TITLE_VARIANT_RE.sub(" ", t)
+    t = re.sub(r"\s*[\-|–—:]\s*$", "", t)
+    t = re.sub(r"\s{2,}", " ", t).strip(" -–—|:")
+    return t
+
+
+def title_has_variant_noise(title: str) -> bool:
+    """True se o título carrega marcadores de dublado/qualidade."""
+    return bool(_TITLE_HAS_VARIANT_RE.search(title or ""))
+
+
+def prefer_display_title(current: str, candidate: str) -> str:
+    """Prefere o título mais “limpo” (sem Dublado/HD) ao mesclar entradas."""
+    cur = (current or "").strip()
+    cand = (candidate or "").strip()
+    if not cur:
+        return cand
+    if not cand:
+        return cur
+    cur_noisy = title_has_variant_noise(cur)
+    cand_noisy = title_has_variant_noise(cand)
+    if cur_noisy and not cand_noisy:
+        return cand
+    if cand_noisy and not cur_noisy:
+        return cur
+    # empate: o mais curto costuma ser o canônico
+    return cur if len(cur) <= len(cand) else cand
+
+
+# Áudio: dublado | legendado | original (sem marcador = em geral legendado nas fontes BR)
+_DUB_RE = re.compile(
+    r"\bdublado\b|\b(?:pt[- ]?br\s+)?dub\b|[(\[]\s*dub\s*[)\]]|/dub(?:lado)?(?:/|$)",
+    re.I,
+)
+_SUB_RE = re.compile(
+    r"\blegendado\b|\bleg\b|[(\[]\s*leg\s*[)\]]|/leg(?:endado)?(?:/|$)",
+    re.I,
+)
+
+
+def detect_audio_variant(title: str = "", link: str = "") -> str:
+    """Detecta variante de áudio a partir do título/URL da fonte.
+
+    Returns:
+        "dublado" | "legendado" | "original"
+    """
+    blob = f"{title or ''} {link or ''}"
+    if _DUB_RE.search(blob):
+        return "dublado"
+    if _SUB_RE.search(blob):
+        return "legendado"
+    return "original"
+
+
+def audio_variant_label(variant: str) -> str:
+    v = (variant or "").strip().lower()
+    if v == "dublado":
+        return "Dublado"
+    if v == "legendado":
+        return "Legendado"
+    return "Legendado"  # original sem marcador ≈ legendado nas fontes BR
+
+
 def normalize_watch_titles(
     anime_title: str,
     episode_title: str = "",
