@@ -103,13 +103,16 @@ class AnishelfApp:
             self._running = False
             return
         config = uvicorn.Config(app, host=HOST, port=PORT, log_level="warning")
-        self._server = uvicorn.Server(config)
+        server = uvicorn.Server(config)
+        self._server = server
         try:
-            self._server.run()
+            server.run()
         except Exception:
             logger.exception("servidor caiu")
         finally:
-            self._running = False
+            if self._server is server:
+                self._running = False
+                self._server = None
 
     # ── actions ───────────────────────────────────────────────────────
 

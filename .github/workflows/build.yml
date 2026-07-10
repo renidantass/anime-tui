@@ -27,19 +27,124 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install system deps (Linux)
+        if: matrix.target == 'linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq python3-gi python3-venv gir1.2-gtk-3.0 gir1.2-ayatanaappindicator3-0
+
+      - name: Set up Linux build venv
+        if: matrix.target == 'linux'
+        run: |
+          python3 -m venv --system-site-packages /tmp/build-venv
+          /tmp/build-venv/bin/pip install --quiet pyinstaller pystray Pillow uvicorn fastapi starlette beautifulsoup4 lxml textual rich requests
+
       - name: Install uv
+        if: matrix.target != 'linux'
         uses: astral-sh/setup-uv@v5
 
-      - name: Set up Python
+      - name: Set up Python (macOS/Windows)
+        if: matrix.target != 'linux'
         run: uv python install 3.11
 
-      - name: Install dependencies
+      - name: Install dependencies (macOS/Windows)
+        if: matrix.target != 'linux'
         run: uv sync
 
-      - name: Install PyInstaller
+      - name: Install PyInstaller (macOS/Windows)
+        if: matrix.target != 'linux'
         run: uv pip install --quiet "pyinstaller>=6.0"
 
-      - name: Build binary
+      - name: Build binary (Linux)
+        if: matrix.target == 'linux'
+        run: |
+          /tmp/build-venv/bin/pyinstaller \
+            --noconfirm --clean --onefile --windowed \
+            --name anishelf \
+            --paths "${{ github.workspace }}" \
+            --add-data "app/presentation/web/static:app/presentation/web/static" \
+            --hidden-import=textual \
+            --hidden-import=textual.app \
+            --hidden-import=textual.widgets \
+            --hidden-import=textual.containers \
+            --hidden-import=textual.screen \
+            --hidden-import=rich \
+            --hidden-import=bs4 \
+            --hidden-import=PIL \
+            --hidden-import=PIL.Image \
+            --hidden-import=PIL.ImageDraw \
+            --hidden-import=PIL.ImageEnhance \
+            --hidden-import=PIL.ImageFile \
+            --hidden-import=requests \
+            --hidden-import=app \
+            --hidden-import=app.infrastructure.sources.animesonlinecc \
+            --hidden-import=app.infrastructure.sources.animesonlinecloud \
+            --hidden-import=app.infrastructure.sources.animeyabu \
+            --hidden-import=app.infrastructure.sources.goyabu \
+            --hidden-import=app.infrastructure.sources.topanimes \
+            --hidden-import=app.infrastructure.sources.source_discovery \
+            --hidden-import=pystray \
+            --hidden-import=pystray._win32 \
+            --hidden-import=pystray._gtk \
+            --hidden-import=pystray._appindicator \
+            --hidden-import=pystray._darwin \
+            --hidden-import=pystray._util \
+            --hidden-import=fastapi \
+            --hidden-import=fastapi.middleware.cors \
+            --hidden-import=starlette \
+            --hidden-import=uvicorn \
+            --hidden-import=uvicorn.protocols.http \
+            --hidden-import=uvicorn.protocols.websockets \
+            --hidden-import=uvicorn.loops.auto \
+            --hidden-import=uvicorn.logging \
+            --collect-submodules=app \
+            --collect-all=gi \
+            --exclude-module=pygments \
+            --exclude-module=setuptools \
+            --exclude-module=pkg_resources \
+            --exclude-module=lxml \
+            --exclude-module=tkinter \
+            --exclude-module=unittest \
+            --exclude-module=pydoc \
+            --exclude-module=doctest \
+            --exclude-module=test \
+            --exclude-module=xmlrpc \
+            --exclude-module=PIL.AvifImagePlugin \
+            --exclude-module=PIL.FtexImagePlugin \
+            --exclude-module=PIL.BlpImagePlugin \
+            --exclude-module=PIL.McIdasImagePlugin \
+            --exclude-module=PIL.MicImagePlugin \
+            --exclude-module=PIL.MpegImagePlugin \
+            --exclude-module=PIL.Hdf5StubImagePlugin \
+            --exclude-module=PIL.DdsImagePlugin \
+            --exclude-module=PIL.FliImagePlugin \
+            --exclude-module=PIL.GbrImagePlugin \
+            --exclude-module=PIL.IcnsImagePlugin \
+            --exclude-module=PIL.ImImagePlugin \
+            --exclude-module=PIL.ImtImagePlugin \
+            --exclude-module=PIL.IptcImagePlugin \
+            --exclude-module=PIL.PalmImagePlugin \
+            --exclude-module=PIL.PcdImagePlugin \
+            --exclude-module=PIL.PdfImagePlugin \
+            --exclude-module=PIL.PixarImagePlugin \
+            --exclude-module=PIL.PsdImagePlugin \
+            --exclude-module=PIL.SgiImagePlugin \
+            --exclude-module=PIL.SpiderImagePlugin \
+            --exclude-module=PIL.SunImagePlugin \
+            --exclude-module=PIL.WalImagePlugin \
+            --exclude-module=PIL.WmfImagePlugin \
+            --exclude-module=PIL.XbmImagePlugin \
+            --exclude-module=PIL.XpmImagePlugin \
+            --exclude-module=PIL.XVThumbImagePlugin \
+            --exclude-module=PIL.ImageTk \
+            --exclude-module=PIL.ImageQt \
+            --exclude-module=PIL.ImageShow \
+            --exclude-module=PIL._imagingtk \
+            --exclude-module=PIL._avif \
+            anishelf.py
+
+      - name: Build binary (macOS/Windows)
+        if: matrix.target != 'linux'
         run: |
           uv run pyinstaller `
             --noconfirm --clean --onefile --windowed `
