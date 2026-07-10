@@ -72,6 +72,14 @@ jobs:
             --hidden-import=pystray._appindicator `
             --hidden-import=pystray._darwin `
             --hidden-import=pystray._util `
+            --hidden-import=fastapi `
+            --hidden-import=fastapi.middleware.cors `
+            --hidden-import=starlette `
+            --hidden-import=uvicorn `
+            --hidden-import=uvicorn.protocols.http `
+            --hidden-import=uvicorn.protocols.websockets `
+            --hidden-import=uvicorn.loops.auto `
+            --hidden-import=uvicorn.logging `
             --collect-submodules=app `
             --exclude-module=pygments `
             --exclude-module=setuptools `
