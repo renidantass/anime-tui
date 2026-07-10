@@ -101,18 +101,22 @@ class AnishelfApp:
         except Exception:
             logger.exception("Falha ao construir app")
             self._running = False
+            self._update_icon()
             return
         config = uvicorn.Config(app, host=HOST, port=PORT, log_level="warning")
         server = uvicorn.Server(config)
         self._server = server
+        logger.info("Servidor uvicorn criado, iniciando run()")
         try:
             server.run()
         except Exception:
             logger.exception("servidor caiu")
         finally:
+            logger.info("Servidor uvicorn finalizou")
             if self._server is server:
                 self._running = False
                 self._server = None
+                self._update_icon()
 
     # ── actions ───────────────────────────────────────────────────────
 
@@ -120,6 +124,9 @@ class AnishelfApp:
         if self._running:
             logger.info("Servidor ja esta rodando")
             return
+        if self._thread and self._thread.is_alive():
+            logger.info("Aguardando thread anterior finalizar...")
+            self._thread.join(timeout=3)
         self._running = True
         self._thread = threading.Thread(target=self._server_loop, daemon=True)
         self._thread.start()
@@ -127,8 +134,11 @@ class AnishelfApp:
         logger.info("Servidor iniciado em %s", URL)
 
     def _stop(self, _icon=None) -> None:
-        if not self._running or self._server is None:
-            logger.info("Servidor nao esta rodando")
+        if not self._running:
+            logger.info("Servidor nao esta rodando (running=False)")
+            return
+        if self._server is None:
+            logger.info("Servidor nao esta rodando (server=None)")
             return
         self._server.should_exit = True
         self._running = False

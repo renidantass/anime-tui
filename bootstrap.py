@@ -124,8 +124,11 @@ def web_lifespan():
 
         get_executor().submit(warm)
         yield
-        get_executor().shutdown(wait=True, cancel_futures=False)
-        logger.info("Thread pool finalizado")
+        try:
+            get_executor().shutdown(wait=True, cancel_futures=False)
+            logger.info("Thread pool finalizado")
+        except RuntimeError:
+            logger.warning("Thread pool ja estava finalizado")
 
     return lifespan
 
