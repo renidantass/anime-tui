@@ -95,7 +95,7 @@ jobs:
             --exclude-module=PIL.FliImagePlugin `
             --exclude-module=PIL.GbrImagePlugin `
             --exclude-module=PIL.IcnsImagePlugin `
-            --exclude-module=PIL.IcoImagePlugin `
+            --icon icon.ico `
             --exclude-module=PIL.ImImagePlugin `
             --exclude-module=PIL.ImtImagePlugin `
             --exclude-module=PIL.IptcImagePlugin `
