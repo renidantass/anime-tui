@@ -8,14 +8,56 @@ A interface TUI continua disponível para quem prefere o terminal.
 
 ---
 
-## Requisitos
+## Baixar e usar (usuário leigo)
+
+Baixe o executável da [página de releases](https://github.com/renidantass/anime-tui/releases) para o seu sistema:
+
+| Plataforma | Arquivo |
+|-----------|---------|
+| **Windows** | `anishelf-windows.exe` |
+| **Linux** | `anishelf-linux` |
+| **macOS** | `anishelf-macos` |
+
+### Windows
+
+1. Baixe `anishelf-windows.exe`
+2. Dê duplo-clique no arquivo (seu antivírus pode perguntar — é normal, o executável não é assinado)
+3. Um ícone cyan aparece na bandeja do sistema (perto do relógio)
+4. Clique com o botão direito no ícone → **Iniciar servidor**
+5. O navegador abre automaticamente com o AniShelf
+
+Para reabrir a interface depois: botão direito → **Abrir AniShelf**. Para parar: **Parar servidor**. Para fechar tudo: **Sair**.
+
+### Linux
+
+```bash
+chmod +x anishelf-linux
+./anishelf-linux
+```
+
+Um ícone aparece na bandeja do sistema. Clique com o botão direito → **Iniciar servidor**.
+
+Requer GTK, Qt ou Xlib instalados (presentes na maioria das distros).
+
+### macOS
+
+```bash
+chmod +x anishelf-macos
+./anishelf-macos
+```
+
+Na primeira execução, vá em **Preferências do Sistema → Segurança e Privacidade** e clique em **Abrir mesmo assim**.
+
+---
+
+## Para desenvolvedores
+
+### Requisitos
 
 - Python ≥ 3.11
 - [`uv`](https://docs.astral.sh/uv/) (recomendado) ou `pip`
 
----
-
-## Instalação rápida
+### Instalação rápida (Linux/macOS)
 
 ```bash
 curl -fsSL https://cdn.jsdelivr.net/gh/renidantass/anime-tui@main/install.sh | bash
@@ -50,7 +92,17 @@ uv sync
 
 ## Uso
 
-### Interface Web (recomendado)
+### Interface Web (recomendado — com bandeja do sistema)
+
+```bash
+uv run python anishelf.py
+# ou
+anishelf
+```
+
+Um ícone aparece na bandeja do sistema. Clique com o botão direito → **Iniciar servidor**. O navegador abre em [http://127.0.0.1:8765](http://127.0.0.1:8765).
+
+### Interface Web (servidor direto)
 
 ```bash
 uv run python web_main.py
