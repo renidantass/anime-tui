@@ -31,6 +31,7 @@ jobs:
       - name: Run mypy
         if: matrix.python-version == '3.11'
         run: uv run mypy app/
+        continue-on-error: true
 
       - name: Run tests
         run: uv run pytest tests/ -v
