@@ -123,21 +123,20 @@ class AnishelfApp:
     def _update_tray(self) -> None:
         if self._tray:
             self._tray.icon = _make_icon(self._running)
-            self._tray.update_menu()
 
     def _build_menu(self) -> pystray.Menu:
         return pystray.Menu(
             pystray.MenuItem(
                 "Iniciar servidor",
                 self._start,
-                enabled=lambda item: not self._running,
+                enabled=not self._running,
                 default=True,
             ),
             pystray.MenuItem("Abrir AniShelf", self._open_browser),
             pystray.MenuItem(
                 "Parar servidor",
                 self._stop,
-                enabled=lambda item: self._running,
+                enabled=self._running,
             ),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("Sair", self._quit),
@@ -150,7 +149,7 @@ class AnishelfApp:
             "anishelf",
             icon,
             "Anishelf",
-            menu=self._build_menu(),
+            menu=self._build_menu,
         )
         self._tray.run()
 
