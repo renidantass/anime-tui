@@ -8,6 +8,19 @@ import { initPlayer, openPlayer, closePlayer } from "./player.js";
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 
+const PLACEHOLDER_POSTER =
+  "data:image/svg+xml," +
+  encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="300" viewBox="0 0 200 300">' +
+    '<rect width="100%" height="100%" fill="#090a12"/>' +
+    '<line x1="0" y1="0" x2="200" y2="300" stroke="#00f0ff" stroke-width="0.5" opacity="0.15"/>' +
+    '<line x1="200" y1="0" x2="0" y2="300" stroke="#00f0ff" stroke-width="0.5" opacity="0.15"/>' +
+    '<rect x="20" y="20" width="160" height="260" fill="none" stroke="#00f0ff" stroke-width="1" stroke-dasharray="4,4" opacity="0.25"/>' +
+    '<text x="50%" y="48%" dominant-baseline="middle" text-anchor="middle" font-family="monospace" font-size="10" fill="#ff0055" font-weight="bold" letter-spacing="2">[ NO SIGNAL ]</text>' +
+    '<text x="50%" y="56%" dominant-baseline="middle" text-anchor="middle" font-family="monospace" font-size="8" fill="#00f0ff" opacity="0.7">SIGNAL LOST</text>' +
+    "</svg>"
+  );
+
 const state = {
   episodes: [],
   history: [],
@@ -36,7 +49,6 @@ const state = {
   genreSeq: 0,
   /** pick = escolher gênero; results = lista de animes */
   genreStep: "pick",
-  genreMoreOpen: false,
   /** Cache client: genre → { items, at } */
   genreCache: {},
   /** Paginação */
@@ -210,12 +222,7 @@ function audioChoiceBadge(sources, place = "inline") {
         <i class="card-audio-pill is-dub">DUB</i>
       </span>`;
   }
-  return `
-    <span class="audio-choice-chip" title="${title}">
-      <i class="card-audio-pill is-leg">LEG</i>
-      <i class="card-audio-pill is-dub">DUB</i>
-      <span class="audio-choice-chip-label">áudio</span>
-    </span>`;
+  return "";
 }
 
 function escapeHtml(s) {
@@ -236,7 +243,15 @@ function posterStyle(url) {
 }
 
 function skeletonShelf(count = 8) {
-  return Array.from({ length: count }, () => `<div class="skel"></div>`).join("");
+  return Array.from({ length: count }, (_, i) => `
+    <article class="skel-card" style="animation-delay:${(i * 0.04).toFixed(2)}s">
+      <div class="skel-card-poster"></div>
+      <div class="skel-card-body">
+        <div class="skel-line skel-line--mid"></div>
+        <div class="skel-line skel-line--narrow"></div>
+      </div>
+    </article>
+  `).join("");
 }
 
 function episodeCard(item, { progressRatio } = {}) {
@@ -258,8 +273,10 @@ function episodeCard(item, { progressRatio } = {}) {
 
   const el = document.createElement("article");
   el.className = "card" + (hasAudioChoice(item.sources) ? " has-audio-choice" : "");
+  const imgSrc = poster || PLACEHOLDER_POSTER;
   el.innerHTML = `
-    <div class="card-poster ${poster ? "has-img" : ""}" style="${posterStyle(poster)}">
+    <div class="card-poster has-img">
+      <img class="card-poster-img" src="${imgSrc}" alt="" loading="lazy" onerror="this.onerror=null; this.src='${PLACEHOLDER_POSTER}';" />
       ${corner}
       ${audioChoiceBadge(item.sources, "poster")}
       <div class="card-play">
@@ -270,9 +287,7 @@ function episodeCard(item, { progressRatio } = {}) {
     <div class="card-body">
       <div class="card-title">${escapeHtml(labels.animeTitle || item.title)}</div>
       <div class="card-meta">
-        ${audioChoiceBadge(item.sources, "inline")}
         ${pillHtml(item.sources)}
-        ${item.date ? `<span>${escapeHtml(item.date)}</span>` : ""}
       </div>
     </div>
   `;
@@ -296,8 +311,10 @@ function animeCard(item) {
   ].filter(Boolean);
   const el = document.createElement("article");
   el.className = "card" + (hasAudioChoice(item.sources) ? " has-audio-choice" : "");
+  const imgSrc = poster || PLACEHOLDER_POSTER;
   el.innerHTML = `
-    <div class="card-poster ${poster ? "has-img" : ""}" style="${posterStyle(poster)}">
+    <div class="card-poster has-img">
+      <img class="card-poster-img" src="${imgSrc}" alt="" loading="lazy" onerror="this.onerror=null; this.src='${PLACEHOLDER_POSTER}';" />
       ${audioChoiceBadge(item.sources, "poster")}
       <div class="card-play">
         <button type="button" class="btn-play-sm" aria-label="Abrir">${playIcon(18)}</button>
@@ -372,8 +389,10 @@ function historyCard(item) {
       : "";
   const el = document.createElement("article");
   el.className = "card";
+  const imgSrc = poster || PLACEHOLDER_POSTER;
   el.innerHTML = `
-    <div class="card-poster ${poster ? "has-img" : ""}" style="${posterStyle(poster)}">
+    <div class="card-poster has-img">
+      <img class="card-poster-img" src="${imgSrc}" alt="" loading="lazy" onerror="this.onerror=null; this.src='${PLACEHOLDER_POSTER}';" />
       ${corner}
       <div class="card-play">
         <button type="button" class="btn-play-sm" aria-label="Continuar">${playIcon(18)}</button>
@@ -438,21 +457,25 @@ async function loadHome({ silent = false } = {}) {
 
   const scroller = $("#episodes-scroller");
   if (scroller) {
-    scroller.innerHTML = skeletonShelf(8);
-  }
-  const count = $("#episodes-count");
-  if (count) count.textContent = "…";
-  const heroTitle = $("#hero-title");
-  if (heroTitle && !state.episodes.length) {
-    heroTitle.textContent = "Carregando…";
+    scroller.innerHTML = skeletonShelf(4);
   }
   try {
-    if (!silent) toast("Carregando episódios…");
     await waitSourcesReady();
     const data = await api.episodes();
     if (seq !== state.catalogReloadSeq) return;
     state.episodes = data.items || [];
     state.catalogDirty = false;
+
+    // Sort episodes newest first for consistent ordering
+    state.episodes.sort((a, b) => {
+      const da = a.date || ""; const db = b.date || "";
+      if (da && db) return db.localeCompare(da);
+      if (da) return -1; if (db) return 1;
+      // Fallback: sort by number desc if available
+      const na = parseFloat(a.number) || 0;
+      const nb = parseFloat(b.number) || 0;
+      return nb - na;
+    });
 
     // Se não há episódios, verificar se é por falta de fontes ativas
     if (!state.episodes.length) {
@@ -504,6 +527,7 @@ function restoreHeroStructure() {
             <button type="button" class="btn btn-ghost" id="hero-info">Outras fontes</button>
           </div>
         </div>
+        <div class="spotlight-hud-code">SYS-DECK // SEC-A</div>
       </article>
 
       <section class="queue-panel" id="row-continue" hidden>
@@ -546,7 +570,8 @@ function restoreHeroStructure() {
       openSourceModal(item.title, sources, (src) => playEpisodeFromSources(item, [src]));
       return;
     }
-    onEpisodeClick(item);
+    // Single source — show it as the only option instead of auto-playing
+    openSourceModal(item.title, sources, (src) => playEpisodeFromSources(item, [src]));
   });
 }
 
@@ -652,11 +677,17 @@ async function loadGenresIfNeeded() {
     renderGenrePickers();
     return state.genres;
   }
-  const popular = $("#genre-popular");
-  if (popular) {
-    popular.innerHTML = Array.from(
+  const grid = $("#genre-grid");
+  if (grid) {
+    grid.innerHTML = Array.from(
       { length: 6 },
-      () => `<div class="skel skel-genre-tile"></div>`
+      () => `<div class="skel-card" style="min-height:5.8rem;border-radius:var(--radius)">
+        <div class="skel-card-poster" style="aspect-ratio:auto;height:100%;position:absolute;inset:0"></div>
+        <div style="position:relative;z-index:1;padding:1rem;display:flex;flex-direction:column;justify-content:space-between;height:100%;min-height:5.8rem">
+          <div class="skel-line" style="width:50%"></div>
+          <div class="skel-line skel-line--narrow"></div>
+        </div>
+      </div>`
     ).join("");
   }
   try {
@@ -700,22 +731,134 @@ function splitGenres() {
 }
 
 function renderGenrePickers() {
+  // All genres in a single grid, popular first then the rest
   const { popular, others } = splitGenres();
-  fillGenreGrid($("#genre-popular"), popular, { showGo: true });
-  fillGenreGrid($("#genre-others"), others, { showGo: false });
+  fillGenreGrid($("#genre-grid"), [...popular, ...others], { showGo: true });
+}
 
-  const moreBtn = $("#btn-genre-more");
-  const morePanel = $("#genre-more-panel");
-  if (moreBtn) {
-    moreBtn.hidden = !others.length;
-    moreBtn.setAttribute("aria-expanded", state.genreMoreOpen ? "true" : "false");
-    moreBtn.textContent = state.genreMoreOpen
-      ? "Ocultar outros gêneros"
-      : `Mais gêneros${others.length ? ` (${others.length})` : ""}`;
+const GENRE_HUD_GRAPHICS = {
+  action: {
+    color: "#ff0055",
+    svg: `<svg viewBox='0 0 100 100' xmlns='http://www.w3.org/2000/svg'><line x1='0' y1='0' x2='100' y2='100' stroke='%23ff0055' stroke-width='0.5' opacity='0.3'/><circle cx='50' cy='50' r='30' fill='none' stroke='%23ff0055' stroke-dasharray='4,2'/><circle cx='50' cy='50' r='5' fill='%23ff0055'/></svg>`,
+    icon: `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><path d="M12 2v20M2 12h20"/></svg>`
+  },
+  adventure: {
+    color: "#00f0ff",
+    svg: `<svg viewBox='0 0 100 100' xmlns='http://www.w3.org/2000/svg'><path d='M10,90 L50,20 L90,90 Z' fill='none' stroke='%2300f0ff' stroke-width='0.8'/><circle cx='50' cy='35' r='10' fill='none' stroke='%2300f0ff' stroke-dasharray='2,2'/></svg>`,
+    icon: `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><path d="M16.2 7.8l-2 6.3-6.4 2 2-6.3z"/></svg>`
+  },
+  fantasy: {
+    color: "#8b5cf6",
+    svg: `<svg viewBox='0 0 100 100' xmlns='http://www.w3.org/2000/svg'><polygon points='50,10 60,40 90,50 60,60 50,90 40,60 10,50 40,40' fill='none' stroke='%238b5cf6' stroke-width='0.8'/></svg>`,
+    icon: `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>`
+  },
+  scifi: {
+    color: "#00ff66",
+    svg: `<svg viewBox='0 0 100 100' xmlns='http://www.w3.org/2000/svg'><rect x='20' y='20' width='60' height='60' fill='none' stroke='%2300ff66' stroke-width='0.8'/><line x1='20' y1='50' x2='80' y2='50' stroke='%2300ff66' stroke-width='0.5'/><line x1='50' y1='20' x2='50' y2='80' stroke='%2300ff66' stroke-width='0.5'/></svg>`,
+    icon: `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><path d="M8 21h8M12 17v4M6 8l3 3-3 3"/></svg>`
+  },
+  romance: {
+    color: "#ff4b82",
+    svg: `<svg viewBox='0 0 100 100' xmlns='http://www.w3.org/2000/svg'><path d='M12,30 A15,15 0 0,1 50,30 A15,15 0 0,1 88,30 Q90,60 50,90 Q10,60 12,30 Z' fill='none' stroke='%23ff4b82' stroke-width='0.8'/></svg>`,
+    icon: `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>`
+  },
+  drama: {
+    color: "#a3aed0",
+    svg: `<svg viewBox='0 0 100 100' xmlns='http://www.w3.org/2000/svg'><path d='M10,50 Q30,10 50,50 T90,50' fill='none' stroke='%23a3aed0' stroke-width='0.8'/><line x1='0' y1='50' x2='100' y2='50' stroke='%23a3aed0' stroke-width='0.3' stroke-dasharray='2,2'/></svg>`,
+    icon: `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><path d="M16 16s-1.5-2-4-2-4 2-4 2M9 9h.01M15 9h.01"/></svg>`
+  },
+  mystery: {
+    color: "#ffb800",
+    svg: `<svg viewBox='0 0 100 100' xmlns='http://www.w3.org/2000/svg'><circle cx='45' cy='45' r='20' fill='none' stroke='%23ffb800' stroke-width='0.8'/><line x1='59' y1='59' x2='85' y2='85' stroke='%23ffb800' stroke-width='1.5'/></svg>`,
+    icon: `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.3-4.3"/></svg>`
+  },
+  comedy: {
+    color: "#eab308",
+    svg: `<svg viewBox='0 0 100 100' xmlns='http://www.w3.org/2000/svg'><circle cx='50' cy='50' r='35' fill='none' stroke='%23eab308' stroke-width='0.8'/><path d='M30,60 Q50,80 70,60' fill='none' stroke='%23eab308' stroke-width='1.2'/><circle cx='40' cy='40' r='3' fill='%23eab308'/><circle cx='60' cy='40' r='3' fill='%23eab308'/></svg>`,
+    icon: `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2M9 9h.01M15 9h.01"/></svg>`
+  },
+  supernatural: {
+    color: "#8b5cf6",
+    svg: `<svg viewBox='0 0 100 100' xmlns='http://www.w3.org/2000/svg'><circle cx='50' cy='50' r='30' fill='none' stroke='%238b5cf6' stroke-width='0.8'/><circle cx='50' cy='50' r='20' fill='none' stroke='%238b5cf6' stroke-width='0.5' stroke-dasharray='5,5'/><path d='M35,35 L65,65 M65,35 L35,65' stroke='%238b5cf6' stroke-width='0.5'/></svg>`,
+    icon: `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>`
+  },
+  horror: {
+    color: "#ff003c",
+    svg: `<svg viewBox='0 0 100 100' xmlns='http://www.w3.org/2000/svg'><rect x='15' y='15' width='70' height='70' fill='none' stroke='%23ff003c' stroke-width='0.8'/><line x1='15' y1='15' x2='85' y2='85' stroke='%23ff003c' stroke-width='0.8'/><line x1='85' y1='15' x2='15' y2='85' stroke='%23ff003c' stroke-width='0.8'/></svg>`,
+    icon: `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4M12 17h.01"/></svg>`
+  },
+  mecha: {
+    color: "#00f0ff",
+    svg: `<svg viewBox='0 0 100 100' xmlns='http://www.w3.org/2000/svg'><path d='M30,20 L70,20 L80,50 L50,80 L20,50 Z' fill='none' stroke='%2300f0ff' stroke-width='0.8'/><circle cx='50' cy='40' r='8' fill='none' stroke='%2300f0ff'/></svg>`,
+    icon: `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="2"/><path d="M12 7v4M8 15h.01M16 15h.01"/></svg>`
+  },
+  slice: {
+    color: "#a8e6cf",
+    svg: `<svg viewBox='0 0 100 100' xmlns='http://www.w3.org/2000/svg'><rect x='20' y='20' width='60' height='60' rx='6' fill='none' stroke='%23a8e6cf' stroke-width='0.8'/><line x1='30' y1='40' x2='70' y2='40' stroke='%23a8e6cf' stroke-width='0.5'/><line x1='30' y1='55' x2='55' y2='55' stroke='%23a8e6cf' stroke-width='0.5'/><circle cx='65' cy='55' r='5' fill='none' stroke='%23a8e6cf' stroke-width='0.6'/></svg>`,
+    icon: `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>`
+  },
+  sports: {
+    color: "#00ff66",
+    svg: `<svg viewBox='0 0 100 100' xmlns='http://www.w3.org/2000/svg'><circle cx='50' cy='50' r='30' fill='none' stroke='%2300ff66' stroke-width='0.8'/><path d='M30,35 Q50,10 70,35' fill='none' stroke='%2300ff66' stroke-width='0.8'/><path d='M30,65 Q50,90 70,65' fill='none' stroke='%2300ff66' stroke-width='0.8'/></svg>`,
+    icon: `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><path d="M2.1 13.4A10 10 0 0 0 13.4 2.1M21.9 10.6a10 10 0 0 0-11.3 11.3M5.1 5.1a10 10 0 0 0 13.8 13.8"/></svg>`
+  },
+  ecchi: {
+    color: "#ff7eb3",
+    svg: `<svg viewBox='0 0 100 100' xmlns='http://www.w3.org/2000/svg'><circle cx='35' cy='35' r='15' fill='none' stroke='%23ff7eb3' stroke-width='0.8'/><circle cx='65' cy='35' r='15' fill='none' stroke='%23ff7eb3' stroke-width='0.8'/><path d='M25,70 Q50,85 75,70' fill='none' stroke='%23ff7eb3' stroke-width='0.8' stroke-linecap='round'/></svg>`,
+    icon: `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M4 7v10l8 3V4z"/><path d="M20 4v16"/></svg>`
+  },
+  psychological: {
+    color: "#c084fc",
+    svg: `<svg viewBox='0 0 100 100' xmlns='http://www.w3.org/2000/svg'><circle cx='50' cy='35' r='18' fill='none' stroke='%23c084fc' stroke-width='0.8'/><line x1='50' y1='53' x2='50' y2='75' stroke='%23c084fc' stroke-width='0.8'/><line x1='30' y1='65' x2='70' y2='65' stroke='%23c084fc' stroke-width='0.6'/><path d='M35,25 Q50,15 65,25' fill='none' stroke='%23c084fc' stroke-width='0.5' stroke-dasharray='2,2'/></svg>`,
+    icon: `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/><path d="M4.93 4.93l14.14 14.14"/></svg>`
+  },
+  thriller: {
+    color: "#f97316",
+    svg: `<svg viewBox='0 0 100 100' xmlns='http://www.w3.org/2000/svg'><path d='M50,15 L85,85 L15,85 Z' fill='none' stroke='%23f97316' stroke-width='0.8'/><circle cx='50' cy='55' r='6' fill='none' stroke='%23f97316' stroke-width='0.6'/><line x1='50' y1='40' x2='50' y2='49' stroke='%23f97316' stroke-width='0.8'/></svg>`,
+    icon: `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>`
+  },
+  mahou_shoujo: {
+    color: "#f472b6",
+    svg: `<svg viewBox='0 0 100 100' xmlns='http://www.w3.org/2000/svg'><path d='M50,10 L58,30 L80,32 L63,48 L68,70 L50,58 L32,70 L37,48 L20,32 L42,30 Z' fill='none' stroke='%23f472b6' stroke-width='0.8'/></svg>`,
+    icon: `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 2l2.5 5.5L20 8.5l-4 4.2L17 19l-5-3-5 3 1-6.3-4-4.2 5.5-1z"/></svg>`
+  },
+  music: {
+    color: "#22d3ee",
+    svg: `<svg viewBox='0 0 100 100' xmlns='http://www.w3.org/2000/svg'><circle cx='35' cy='65' r='15' fill='none' stroke='%2322d3ee' stroke-width='0.8'/><path d='M50,65 L50,25 L80,30 L70,55 L50,50' fill='none' stroke='%2322d3ee' stroke-width='0.8'/><circle cx='65' cy='55' r='10' fill='none' stroke='%2322d3ee' stroke-width='0.6'/></svg>`,
+    icon: `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>`
+  },
+  slice: {
+    color: "#a8e6cf",
+    svg: `<svg viewBox='0 0 100 100' xmlns='http://www.w3.org/2000/svg'><rect x='20' y='20' width='60' height='60' rx='6' fill='none' stroke='%23a8e6cf' stroke-width='0.8'/><line x1='30' y1='40' x2='70' y2='40' stroke='%23a8e6cf' stroke-width='0.5'/><line x1='30' y1='55' x2='55' y2='55' stroke='%23a8e6cf' stroke-width='0.5'/><circle cx='65' cy='55' r='5' fill='none' stroke='%23a8e6cf' stroke-width='0.6'/></svg>`,
+    icon: `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>`
   }
-  if (morePanel) {
-    morePanel.hidden = !state.genreMoreOpen || !others.length;
-  }
+};
+
+function getGenreConfig(genreId) {
+  const norm = String(genreId || "").toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g, "");
+  if (norm.includes("acao") || norm === "action") return GENRE_HUD_GRAPHICS.action;
+  if (norm.includes("aventura") || norm === "adventure") return GENRE_HUD_GRAPHICS.adventure;
+  if (norm.includes("fantasia") || norm === "fantasy") return GENRE_HUD_GRAPHICS.fantasy;
+  if (norm.includes("ficcao") || norm.includes("scifi") || norm === "sci-fi") return GENRE_HUD_GRAPHICS.scifi;
+  if (norm.includes("romance")) return GENRE_HUD_GRAPHICS.romance;
+  if (norm.includes("drama")) return GENRE_HUD_GRAPHICS.drama;
+  if (norm.includes("misterio") || norm === "mystery") return GENRE_HUD_GRAPHICS.mystery;
+  if (norm.includes("comedia") || norm === "comedy") return GENRE_HUD_GRAPHICS.comedy;
+  if (norm.includes("sobrenatural") || norm === "supernatural") return GENRE_HUD_GRAPHICS.supernatural;
+  if (norm.includes("terror") || norm === "horror") return GENRE_HUD_GRAPHICS.horror;
+  if (norm === "mecha") return GENRE_HUD_GRAPHICS.mecha;
+  if (norm.includes("esportes") || norm === "sports") return GENRE_HUD_GRAPHICS.sports;
+  if (norm.includes("slice")) return GENRE_HUD_GRAPHICS.slice;
+  if (norm.includes("ecchi")) return GENRE_HUD_GRAPHICS.ecchi;
+  if (norm.includes("psicologico") || norm === "psychological") return GENRE_HUD_GRAPHICS.psychological;
+  if (norm === "thriller") return GENRE_HUD_GRAPHICS.thriller;
+  if (norm.includes("mahou") || norm.includes("shoujo")) return GENRE_HUD_GRAPHICS.mahou_shoujo;
+  if (norm.includes("musica") || norm === "music") return GENRE_HUD_GRAPHICS.music;
+  return {
+    color: "#64748b",
+    svg: `<svg viewBox='0 0 100 100' xmlns='http://www.w3.org/2000/svg'><circle cx='50' cy='50' r='25' fill='none' stroke='%2364748b' stroke-width='0.6'/><line x1='15' y1='50' x2='85' y2='50' stroke='%2364748b' stroke-width='0.4' stroke-dasharray='2,2'/></svg>`,
+    icon: `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>`
+  };
 }
 
 function fillGenreGrid(el, list, { showGo = true } = {}) {
@@ -734,9 +877,18 @@ function fillGenreGrid(el, list, { showGo = true } = {}) {
     btn.role = "option";
     btn.dataset.genre = id;
     btn.disabled = state.genreLoading;
+    const config = getGenreConfig(id);
+    const bgData = 'data:image/svg+xml;utf8,' + encodeURIComponent(config.svg);
+    btn.style.setProperty("--genre-color", config.color);
     btn.innerHTML = `
-      <span class="genre-tile-label">${escapeHtml(g.label || g.name)}</span>
-      ${showGo ? `<span class="genre-tile-go">Ver animes →</span>` : ""}
+      <div class="genre-tile-art" style="background-image:url('${bgData}')"></div>
+      <div class="genre-tile-body">
+        <span class="genre-tile-title">
+          ${config.icon || ""}
+          <span class="genre-tile-label">${escapeHtml(g.label || g.name)}</span>
+        </span>
+        ${showGo ? `<span class="genre-tile-go">Ver animes →</span>` : ""}
+      </div>
     `;
     btn.addEventListener("click", () => selectGenre(id));
     frag.appendChild(btn);
@@ -826,13 +978,6 @@ function showGenreLoading(visible, opts = {}) {
 }
 
 function setExploreHead(title, kicker = "") {
-  const t = $("#genre-active-title");
-  const k = $("#genre-kicker");
-  if (t) t.textContent = title || "—";
-  if (k) {
-    k.textContent = kicker || "";
-    k.hidden = true; // evitado de propósito — título único basta
-  }
   if (title) setTopbar("", title);
 }
 
@@ -853,7 +998,7 @@ async function loadGenreBrowse(genre, { silent = false, force = false } = {}) {
   const scroller = $("#genre-scroller");
   const count = $("#genre-count");
   const label = genreLabel(genre);
-  setExploreHead(label, "Carregando");
+  setExploreHead(label);
   if (count) count.textContent = "…";
 
   // cache client (resultado já resolvido)
@@ -861,25 +1006,16 @@ async function loadGenreBrowse(genre, { silent = false, force = false } = {}) {
   if (!force && cached && Date.now() - cached.at < GENRE_CACHE_MS && cached.items?.length) {
     if (seq !== state.genreSeq) return;
     state.genrePage = 1;
-    state.genreHasNext = true; // optimistic — será atualizado no fetch completo
+    state.genreHasNext = true;
     state.genreCurrentGenre = genre;
     state.genreItems = cached.items;
     showGenreLoading(false);
     renderGenreAvailable(cached.items, { label, animated: false });
-    setExploreHead(label, "Nas suas fontes");
     state.genreLoading = false;
-    renderGenrePickers();
     return;
   }
 
-  showGenreLoading(true, {
-    title: `Carregando ${label}…`,
-    sub: "Buscando no catálogo",
-    indeterminate: true,
-  });
-  if (scroller) {
-    scroller.innerHTML = skeletonShelf(10);
-  }
+  showGenreLoading(true, { title: `Carregando ${label}…` });
 
   try {
     await waitSourcesReady();
@@ -892,7 +1028,7 @@ async function loadGenreBrowse(genre, { silent = false, force = false } = {}) {
       catalog = await api.genreCatalog(genre, 1, 20);
     } catch (catalogErr) {
       if (catalogErr.status === 404 || /not found/i.test(catalogErr.message || "")) {
-        await loadGenreBrowseLegacy(genre, { seq, silent, label, scroller, count });
+        await loadGenreBrowseLegacy(genre, { seq, label, scroller, count });
         return;
       }
       throw catalogErr;
@@ -901,24 +1037,16 @@ async function loadGenreBrowse(genre, { silent = false, force = false } = {}) {
     if (seq !== state.genreSeq) return;
     const candidates = catalog.items || [];
     state.genreCatalog = candidates;
-    setExploreHead(label, "Conferindo fontes");
-    showGenreLoading(true, {
-      title: `Conferindo ${label}…`,
-      sub: "Vendo o que existe nas fontes",
-      progress: 8,
-    });
-    renderGenreChecking(candidates);
 
     if (!candidates.length) {
-      if (scroller) {
-        scroller.innerHTML = `<div class="empty-state"><strong>Nada neste gênero</strong>Não há títulos listados para ${escapeHtml(label)}.</div>`;
-      }
-      if (count) count.textContent = "0";
       showGenreLoading(false);
+      if (scroller) scroller.innerHTML = `<div class="empty-state"><strong>Nada neste gênero</strong>Não há títulos listados para ${escapeHtml(label)}.</div>`;
+      if (count) count.textContent = "0";
+      state.genreLoading = false;
       return;
     }
 
-    // 2) resolve em lotes — UI preenche conforme chega
+    // resolve em lotes — cards aparecem conforme chegam
     const batchSize = 5;
     const maxCheck = Math.min(candidates.length, 16);
     const queue = candidates.slice(0, maxCheck);
@@ -931,43 +1059,18 @@ async function loadGenreBrowse(genre, { silent = false, force = false } = {}) {
       if (seq !== state.genreSeq) return;
       const batch = queue.slice(i, i + batchSize);
       const done = Math.min(i + batch.length, queue.length);
-      const pct = Math.round((done / queue.length) * 100);
-      const statusTitle = `Conferindo… ${done}/${queue.length}`;
-      const statusSub =
-        found.length > 0
-          ? `${found.length} disponível${found.length === 1 ? "" : "is"}`
-          : "Procurando títulos nas fontes ativas";
-      // se já tem cards, só atualiza o pill (não reabre o overlay)
-      if (found.length > 0) {
-        setGenreStatus(true, `${statusTitle} · ${statusSub}`);
-      } else {
-        showGenreLoading(true, {
-          title: statusTitle,
-          sub: statusSub,
-          progress: pct,
-        });
-      }
+
       try {
         const res = await api.genreResolve(
           batch.map((c) => ({
-            id: c.id,
-            title: c.title,
-            titles: c.titles || [c.title],
-            image: c.image || "",
-            score: c.score ?? null,
-            banner: c.banner || "",
-            season: c.season || "",
-            season_label: c.season_label || "",
-            season_line: c.season_line || "",
-            year: c.year ?? null,
-            format: c.format || "",
-            format_label: c.format_label || "",
-            status: c.status || "",
-            status_label: c.status_label || "",
-            episodes: c.episodes ?? null,
-            studios: c.studios || [],
-            genres: c.genres || [],
-            genres_label: c.genres_label || [],
+            id: c.id, title: c.title, titles: c.titles || [c.title],
+            image: c.image || "", score: c.score ?? null, banner: c.banner || "",
+            season: c.season || "", season_label: c.season_label || "",
+            season_line: c.season_line || "", year: c.year ?? null,
+            format: c.format || "", format_label: c.format_label || "",
+            status: c.status || "", status_label: c.status_label || "",
+            episodes: c.episodes ?? null, studios: c.studios || [],
+            genres: c.genres || [], genres_label: c.genres_label || [],
             description: c.description || "",
           }))
         );
@@ -977,62 +1080,50 @@ async function loadGenreBrowse(genre, { silent = false, force = false } = {}) {
           if (!key || seenTitles.has(key)) continue;
           seenTitles.add(key);
           found.push(item);
-          // primeiros hits: esconde overlay grande, mantém pill de status
-          if (found.length === 1) {
-            const loadingEl = $("#genre-loading");
-            if (loadingEl) loadingEl.hidden = true;
-            $("#explore-panel")?.classList.remove("is-loading");
-          }
           appendGenreCard(item);
-          if (count) count.textContent = `${found.length} disponíveis`;
+          if (count) count.textContent = `${found.length} / ${queue.length}`;
         }
       } catch (batchErr) {
-        if (
-          batchErr.status === 404 ||
-          batchErr.status === 405 ||
-          /not found|method not allowed/i.test(batchErr.message || "")
-        ) {
+        if (batchErr.status === 404 || batchErr.status === 405 || /not found|method not allowed/i.test(batchErr.message || "")) {
           resolveUnsupported = true;
           break;
         }
-        console.warn("resolve batch failed", batchErr);
+      }
+
+      // Update loading text — stays visible until first card arrives
+      if (!found.length) {
+        showGenreLoading(true, { title: `Buscando… (${done}/${queue.length})` });
+      } else {
+        showGenreLoading(false);
       }
     }
 
     if (resolveUnsupported) {
-      await loadGenreBrowseLegacy(genre, { seq, silent, label, scroller, count });
+      await loadGenreBrowseLegacy(genre, { seq, label, scroller, count });
       return;
     }
 
     if (seq !== state.genreSeq) return;
     state.genreItems = found;
     state.genreCache[genre] = { items: found, at: Date.now() };
+    showGenreLoading(false);
 
-    // remove placeholders restantes
     scroller?.querySelectorAll(".card.is-checking").forEach((n) => n.remove());
 
     if (!found.length) {
-      if (scroller) {
-        scroller.innerHTML = `<div class="empty-state"><strong>Nada nas fontes</strong>Há ${queue.length} títulos de ${escapeHtml(label)} no catálogo, mas nenhum está nas fontes ativas.</div>`;
-      }
+      if (scroller) scroller.innerHTML = `<div class="empty-state"><strong>Nada nas fontes</strong>Há ${queue.length} títulos de ${escapeHtml(label)} no catálogo, mas nenhum está nas fontes ativas.</div>`;
       if (count) count.textContent = "0";
-      setExploreHead(label, "Nada encontrado");
     } else {
       if (count) count.textContent = `${found.length}`;
-      setExploreHead(label, "Nas suas fontes");
-      if (!silent) {
-        toast(`${found.length} anime${found.length === 1 ? "" : "s"} de ${label}`);
-      }
     }
-    // store pagination state for loadMore
+
     state.genrePage = Number(catalog.page) || 1;
     state.genreHasNext = Boolean(catalog.has_next);
   } catch (e) {
     if (seq !== state.genreSeq) return;
+    showGenreLoading(false);
     if (!silent) toast(e.message || "Não foi possível buscar o gênero", true);
-    if (scroller) {
-      scroller.innerHTML = `<div class="empty-state"><strong>Busca falhou</strong>${escapeHtml(e.message || "Tente outro gênero.")}</div>`;
-    }
+    if (scroller) scroller.innerHTML = `<div class="empty-state"><strong>Busca falhou</strong>${escapeHtml(e.message || "Tente outro gênero.")}</div>`;
     if (count) count.textContent = "0";
   } finally {
     if (seq === state.genreSeq) {
@@ -1092,15 +1183,8 @@ function _renderGenreLoadMore() {
 }
 
 /** Fallback único request: /api/genres/browse */
-async function loadGenreBrowseLegacy(genre, { seq, silent, label, scroller, count }) {
-  setExploreHead(label, "Buscando");
-  showGenreLoading(true, {
-    title: `Carregando ${label}…`,
-    sub: "Pode levar alguns segundos",
-    indeterminate: true,
-  });
-  if (scroller) scroller.innerHTML = skeletonShelf(10);
-  if (count) count.textContent = "…";
+async function loadGenreBrowseLegacy(genre, { seq, label, scroller, count }) {
+  showGenreLoading(true, { title: `Carregando ${label}…` });
   try {
     const data = await api.browseGenre(genre, 1, 16);
     if (seq !== state.genreSeq) return;
@@ -1110,24 +1194,14 @@ async function loadGenreBrowseLegacy(genre, { seq, silent, label, scroller, coun
     state.genrePage = Number(data.page) || 1;
     state.genreHasNext = Boolean(data.has_next);
     renderGenreAvailable(items, { label: data.label || label, animated: true });
-    if (!items.length) {
-      setExploreHead(data.label || label, "Nada encontrado");
-    } else {
-      setExploreHead(data.label || label, "Nas suas fontes");
-      if (!silent) toast(`${items.length} anime${items.length === 1 ? "" : "s"} de ${data.label || label}`);
-    }
   } catch (e) {
     if (seq !== state.genreSeq) return;
-    if (!silent) toast(e.message || "Não foi possível buscar o gênero", true);
-    if (scroller) {
-      scroller.innerHTML = `<div class="empty-state"><strong>Busca falhou</strong>${escapeHtml(e.message || "Tente outro gênero.")}</div>`;
-    }
+    if (scroller) scroller.innerHTML = `<div class="empty-state"><strong>Busca falhou</strong>${escapeHtml(e.message || "Tente outro gênero.")}</div>`;
     if (count) count.textContent = "0";
   } finally {
     if (seq === state.genreSeq) {
       state.genreLoading = false;
       showGenreLoading(false);
-      renderGenrePickers();
       _renderGenreLoadMore();
     }
   }
@@ -1392,8 +1466,8 @@ function calendarRow(item, { checking = false } = {}) {
 
   btn.innerHTML = `
     <div class="calendar-time">
-      ${escapeHtml(time)}
-      ${relative ? `<small>${escapeHtml(relative)}</small>` : ""}
+      ${relative ? `<strong>${escapeHtml(relative)}</strong>` : escapeHtml(time)}
+      <small>${escapeHtml(time)}</small>
     </div>
     <div class="calendar-thumb" style="${
       poster ? `background-image:url('${poster}')` : ""
@@ -1603,8 +1677,16 @@ function renderHero() {
     return;
   }
   const bg = $("#hero-bg");
-  if (bg && item.image) {
-    bg.style.backgroundImage = `url('${imgUrl(item.image)}')`;
+  if (bg) {
+    const poster = imgUrl(item.image);
+    if (poster) {
+      const img = new Image();
+      img.onload = () => { bg.style.backgroundImage = `url('${poster}')`; };
+      img.onerror = () => { bg.style.backgroundImage = `url('${PLACEHOLDER_POSTER}')`; };
+      img.src = poster;
+    } else {
+      bg.style.backgroundImage = `url('${PLACEHOLDER_POSTER}')`;
+    }
   }
   const links = (item.sources || []).map((s) => s.link);
   const labels = normalizeWatchTitles(
@@ -1630,10 +1712,7 @@ function renderHero() {
       heroMeta.textContent = "";
     }
   }
-  $("#hero-desc").textContent =
-    item.date
-      ? `Lançado em ${item.date}`
-      : "Pronto para assistir. Se uma fonte falhar, tentamos outra.";
+  $("#hero-desc").textContent = "Pronto para assistir. Se uma fonte falhar, tentamos outra.";
 }
 
 function renderEpisodesRow() {
@@ -2394,16 +2473,24 @@ function applyAniListMeta(meta) {
   // fundo: banner AniList se existir
   const bg = $("#detail-bg");
   if (bg && meta.banner) {
-    bg.style.backgroundImage = `url('${imgUrl(meta.banner)}')`;
+    const bannerUrl = imgUrl(meta.banner);
+    const img = new Image();
+    img.onload = () => { bg.style.backgroundImage = `url('${bannerUrl}')`; };
+    img.onerror = () => { bg.style.backgroundImage = ""; };
+    img.src = bannerUrl;
   }
 
   // poster só se a fonte não trouxe imagem útil
   const posterEl = $("#detail-poster");
   const sourceImg = (state.detail.image || "").trim();
   if (posterEl && meta.image && !sourceImg) {
-    posterEl.src = imgUrl(meta.image);
-    posterEl.alt = state.detail.title || meta.title || "";
-    posterEl.style.display = "";
+    // Delay poster swap — source image is already rendering, no rush
+    setTimeout(() => {
+      if (state.detailSeq !== seq) return;
+      posterEl.onerror = () => { posterEl.src = PLACEHOLDER_POSTER; };
+      posterEl.src = imgUrl(meta.image);
+      posterEl.alt = state.detail.title || meta.title || "";
+    }, 600);
   }
 
   const alt = $("#detail-alt-title");
@@ -2592,23 +2679,25 @@ function renderDetail(detail, preferredSource) {
   const poster = imgUrl(detail.image);
   const posterEl = $("#detail-poster");
   if (posterEl) {
-    posterEl.onerror = () => {
-      posterEl.style.display = "none";
-      posterEl.removeAttribute("src");
-    };
-    if (poster) {
-      posterEl.src = poster;
-      posterEl.alt = detail.title || "";
-      posterEl.style.display = "";
-    } else {
-      posterEl.removeAttribute("src");
-      posterEl.alt = "";
-      posterEl.style.display = "none";
-    }
+    posterEl.alt = detail.title || "";
+    posterEl.style.display = "";
+    posterEl.loading = "lazy";
+    // Defer image load to avoid hammering the proxy alongside other detail fetches
+    requestAnimationFrame(() => {
+      posterEl.onerror = () => { posterEl.src = PLACEHOLDER_POSTER; };
+      posterEl.src = poster || PLACEHOLDER_POSTER;
+    });
   }
   const bg = $("#detail-bg");
   if (bg) {
-    bg.style.backgroundImage = poster ? `url('${poster}')` : "";
+    if (poster) {
+      const img = new Image();
+      img.onload = () => { bg.style.backgroundImage = `url('${poster}')`; };
+      img.onerror = () => { bg.style.backgroundImage = `url('${PLACEHOLDER_POSTER}')`; };
+      img.src = poster;
+    } else {
+      bg.style.backgroundImage = `url('${PLACEHOLDER_POSTER}')`;
+    }
   }
 
   const pills = $("#detail-sources");
@@ -2701,9 +2790,7 @@ function renderSeasonEpisodes(season) {
       labels.number && labels.number !== "?" ? String(labels.number) : "?";
 
     btn.innerHTML = `
-      <div class="ep-thumb ${thumb ? "has-img" : "is-placeholder"}" ${
-        thumb ? `style="background-image:url('${thumb}')"` : ""
-      }>
+      <div class="ep-thumb" data-thumb="${escapeHtml(thumb)}">
         ${
           thumb
             ? `<span class="ep-num">Ep ${escapeHtml(numLabel)}</span>`
@@ -2719,6 +2806,19 @@ function renderSeasonEpisodes(season) {
         <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
       </span>
     `;
+
+    // Lazy-load episode thumb via IntersectionObserver
+    const thumbEl = btn.querySelector(".ep-thumb");
+    if (thumbEl && thumb) {
+      const obs = new IntersectionObserver((entries) => {
+        if (entries[0].isIntersecting) {
+          thumbEl.style.backgroundImage = `url('${thumb}')`;
+          thumbEl.classList.add("has-img");
+          obs.disconnect();
+        }
+      }, { rootMargin: "200px" });
+      obs.observe(thumbEl);
+    }
     // se main e kicker ficariam iguais ("Episódio 1" / "Episódio 1"), some o kicker
     if (!subLine && generic && !alTitle) {
       const k = btn.querySelector(".ep-kicker");
@@ -2791,18 +2891,6 @@ function formatLatency(ms) {
   return `${(n / 1000).toFixed(1)} s`;
 }
 
-function formatUptime(pct) {
-  if (pct == null || Number.isNaN(Number(pct))) return "—";
-  return `${Number(pct).toFixed(0)}%`;
-}
-
-function uptimeClass(pct) {
-  if (pct == null) return "";
-  if (pct >= 90) return "good";
-  if (pct >= 60) return "warn";
-  return "bad";
-}
-
 function latencyClass(ms) {
   if (ms == null) return "";
   if (ms < 800) return "good";
@@ -2830,84 +2918,114 @@ function formatCheckTime(iso) {
   }
 }
 
-function sourceInitials(name) {
-  const parts = String(name || "?").trim().split(/\s+/);
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return (parts[0][0] + parts[1][0]).toUpperCase();
+/* ── Source emblem icons (generated dynamically from name + color) ─────────── */
+
+function hashStr(s) {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) { h = ((h << 5) - h) + s.charCodeAt(i); h |= 0; }
+  return Math.abs(h);
 }
 
-function donutChart(s) {
-  const pct = s.uptime_percent != null ? Math.max(0, Math.min(100, s.uptime_percent)) : null;
-  const r = 18; const c = 2 * Math.PI * r;
-  const fill = c * ((pct ?? 0) / 100);
-  const color = pct == null ? "var(--dimmer)" : pct >= 99 ? "var(--ok)" : pct >= 90 ? "var(--gold)" : "var(--danger)";
-  const latency = s.latency_ms != null ? formatLatency(s.latency_ms) : "—";
-  return `
-    <svg viewBox="0 0 52 52" width="52" height="52">
-      <circle cx="26" cy="26" r="${r}" fill="none" stroke="var(--line)" stroke-width="4"/>
-      <circle cx="26" cy="26" r="${r}" fill="none" stroke="${color}" stroke-width="4"
-        stroke-dasharray="${fill} ${c}" stroke-dashoffset="${(c - fill) / 2}"
-        transform="rotate(-90 26 26)" stroke-linecap="round"/>
-      <text x="26" y="25" text-anchor="middle" fill="var(--text)" font-size="10" font-weight="800">${latency}</text>
-      <text x="26" y="36" text-anchor="middle" fill="var(--dim)" font-size="7" font-weight="600">${pct != null ? Math.round(pct) + "%" : "—"}</text>
-    </svg>`;
+function sourceEmblemSvg(id, color) {
+  const c = color || "#666";
+  const h = hashStr(id || "");
+  // Pick an icon template based on hash, then colorize it
+  const templates = [
+    // Circle burst
+    `<svg viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="12" r="6"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4M4.9 4.9l2.8 2.8M16.3 16.3l2.8 2.8M4.9 19.1l2.8-2.8M16.3 7.7l2.8-2.8"/>
+    </svg>`,
+    // Diamond
+    `<svg viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M12 2L2 12l10 10 10-10z"/><path d="M12 6l-4 4 4 4 4-4z"/><circle cx="12" cy="12" r="2"/>
+    </svg>`,
+    // Hexagon
+    `<svg viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><circle cx="12" cy="12" r="3"/>
+    </svg>`,
+    // Cross with dots
+    `<svg viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="5" r="2"/><circle cx="12" cy="19" r="2"/><circle cx="5" cy="12" r="2"/><circle cx="19" cy="12" r="2"/><circle cx="12" cy="12" r="4"/>
+    </svg>`,
+    // Pulsar / target
+    `<svg viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="1" fill="${c}"/>
+    </svg>`,
+    // Waves
+    `<svg viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M3 12c2-2 4-4 6 0s4 4 6 0 4-4 6 0"/><path d="M3 18c2-2 4-4 6 0s4 4 6 0 4-4 6 0"/><circle cx="12" cy="6" r="2"/>
+    </svg>`,
+    // Layers
+    `<svg viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M12 2L2 7l10 5 10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>
+    </svg>`,
+    // Compass
+    `<svg viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="12" r="9"/><path d="M12 7v2"/><path d="M12 15v2"/><path d="M7 12h2"/><path d="M15 12h2"/><circle cx="12" cy="12" r="3" fill="${c}" opacity="0.3"/>
+    </svg>`,
+  ];
+
+  const idx = h % templates.length;
+  return templates[idx];
 }
 
-function sparklineBars(recent) {
-  if (!recent || !recent.length) return "";
-  // GitHub-style contribution grid
-  const cells = recent.slice(-28).map((ok) => {
-    const cls = ok ? "spark-cell spark-cell--on" : "spark-cell spark-cell--off";
-    return `<span class="${cls}"></span>`;
-  }).join("");
-  return `<div class="spark-grid">${cells}</div>`;
-}
+/* ── Signal strength bars ─────────────────────────────────────────────────── */
 
-function sourceMeta(s) {
-  const parts = [];
-  if (s.latency_ms != null) parts.push(formatLatency(s.latency_ms));
-  if (s.checks_total > 0) {
-    parts.push(formatUptime(s.uptime_percent));
-    parts.push(formatCheckTime(s.last_check_at));
+function signalBarsHtml(s) {
+  const ms = s.latency_ms;
+  const bars = [];
+  const levels = ms == null ? [0, 0, 0, 0, 0]
+    : ms < 200  ? [1, 1, 1, 1, 1]
+    : ms < 500  ? [1, 1, 1, 1, 0]
+    : ms < 1000 ? [1, 1, 1, 0, 0]
+    : ms < 2500 ? [1, 1, 0, 0, 0]
+    : [1, 0, 0, 0, 0];
+  const heights = [6, 9, 12, 15, 18];
+  for (let i = 0; i < 5; i++) {
+    const on = levels[i] && s.available;
+    const cls = !s.enabled ? "" : !on ? "is-bad" : ms < 500 ? "is-on" : ms < 1500 ? "is-warn" : "is-bad";
+    bars.push(`<span class="signal-bar ${cls}" style="height:${heights[i]}px;opacity:${on ? 1 : s.enabled ? 0.2 : 0.08}"></span>`);
   }
-  return parts.join(" · ");
+  return `<span class="signal-bars">${bars.join("")}</span>`;
 }
+
+/* ── Dashboard ────────────────────────────────────────────────────────────── */
+
+function renderSourcesDashboard(items) {
+  const el = $("#sources-dashboard");
+  if (!el) return;
+  const total = items.length;
+  const online = items.filter(s => s.enabled && s.available).length;
+  const offline = items.filter(s => s.enabled && !s.available).length;
+  const disabled = items.filter(s => !s.enabled).length;
+  el.innerHTML = `
+    <div class="dash-stat total"><span class="dash-stat-value">${total}</span><span class="dash-stat-label">Total</span></div>
+    <div class="dash-stat online"><span class="dash-stat-value">${online}</span><span class="dash-stat-label">Online</span></div>
+    <div class="dash-stat offline"><span class="dash-stat-value">${offline}</span><span class="dash-stat-label">Offline</span></div>
+    <div class="dash-stat disabled"><span class="dash-stat-value">${disabled}</span><span class="dash-stat-label">Desativadas</span></div>
+  `;
+}
+
+/* ── Source card ──────────────────────────────────────────────────────────── */
 
 function updateSourceCard(card, updated) {
   const st = statusLabel(updated.status, updated.available);
-  const pill = card.querySelector(".status-pill");
-  if (pill) {
-    pill.className = `status-pill ${st.cls}`;
-    pill.textContent = st.text;
-    if (updated.error) pill.title = updated.error;
-    else pill.removeAttribute("title");
-  }
+  const dot = card.querySelector(".status-dot");
+  if (dot) { dot.className = `status-dot ${st.cls}`; }
 
-  // Update stat values
-  const statValues = card.querySelectorAll(".source-stat-value");
-  if (statValues[0]) {
-    const latencyStr = updated.latency_ms != null ? formatLatency(updated.latency_ms) : "—";
-    statValues[0].textContent = latencyStr;
-    statValues[0].className = `source-stat-value ${updated.latency_ms != null ? latencyClass(updated.latency_ms) : ""}`;
-  }
-  if (statValues[1]) {
-    const uptimePct = updated.uptime_percent != null ? Math.round(updated.uptime_percent) : null;
-    statValues[1].textContent = uptimePct != null ? uptimePct + "%" : "—";
-    statValues[1].className = `source-stat-value ${uptimePct != null ? uptimeClass(uptimePct) : ""}`;
-  }
-
-  const spark = card.querySelector(".source-sparkline");
-  if (spark) spark.innerHTML = sparklineBars(updated.recent_checks);
+  // Update signal bars
+  const barsWrap = card.querySelector(".signal-bars-wrap");
+  if (barsWrap) barsWrap.innerHTML = signalBarsHtml(updated);
 
   const errEl = card.querySelector(".source-error");
   if (updated.error && !updated.available) {
     if (!errEl) {
       const p = document.createElement("p");
       p.className = "source-error";
-      p.innerHTML = `<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01"/></svg>${escapeHtml(updated.error)}`;
+      p.innerHTML = `${escapeHtml(updated.error)}`;
       card.appendChild(p);
     } else {
-      errEl.innerHTML = `<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01"/></svg>${escapeHtml(updated.error)}`;
+      errEl.innerHTML = `${escapeHtml(updated.error)}`;
     }
   } else if (errEl) {
     errEl.remove();
@@ -2922,48 +3040,30 @@ function renderSourceCard(s) {
   card.className = `source-card is-${st.cls}${s.enabled ? "" : " is-disabled"}`;
   card.dataset.id = s.identifier;
 
-  const uptimePct = s.uptime_percent != null ? Math.round(s.uptime_percent) : null;
-  const latencyStr = s.latency_ms != null ? formatLatency(s.latency_ms) : null;
-  const lastCheck = s.last_check_at ? formatCheckTime(s.last_check_at) : null;
-
-  const capabilityBadges = [
+  const host = hostFromUrl(s.base_url);
+  const capBadges = [
     s.has_search ? `<span class="source-cap-badge">Busca</span>` : "",
     s.has_details ? `<span class="source-cap-badge">Detalhes</span>` : "",
   ].filter(Boolean).join("");
 
+  const emblem = sourceEmblemSvg(s.identifier, s.color || "#666");
+
   card.innerHTML = `
     <div class="source-card-body">
-      <div class="source-card-identity">
-        <span class="source-brand" style="--brand:${s.color || "#666"};background:${s.color || "#666"}">${escapeHtml(sourceInitials(s.name))}</span>
-        <div class="source-card-titles">
-          <div class="source-card-name">${escapeHtml(s.name)}</div>
-          <div class="source-card-host">${escapeHtml(hostFromUrl(s.base_url) || s.identifier)}</div>
-          ${capabilityBadges ? `<div class="source-caps">${capabilityBadges}</div>` : ""}
-        </div>
+      <span class="source-emblem" style="--src-color:${s.color || "#666"}">${emblem}</span>
+
+      <div class="source-card-titles">
+        <div class="source-card-name">${escapeHtml(s.name)}</div>
+        <div class="source-card-host">${escapeHtml(host || s.identifier)}</div>
+        ${capBadges ? `<div class="source-caps">${capBadges}</div>` : ""}
       </div>
 
-      <div class="source-card-stats">
-        <div class="source-stat">
-          <span class="source-stat-value ${latencyStr ? latencyClass(s.latency_ms) : ""}"
-          >${latencyStr ?? "—"}</span>
-          <span class="source-stat-label">Latência</span>
-        </div>
-        <div class="source-stat">
-          <span class="source-stat-value ${uptimePct != null ? uptimeClass(uptimePct) : ""}"
-          >${uptimePct != null ? uptimePct + "%" : "—"}</span>
-          <span class="source-stat-label">Uptime</span>
-        </div>
-        <div class="source-sparkline-wrap">
-          <div class="source-sparkline">${sparklineBars(s.recent_checks)}</div>
-          ${lastCheck ? `<span class="source-stat-label">Última: ${lastCheck}</span>` : ""}
-        </div>
-      </div>
+      <div class="signal-bars-wrap">${signalBarsHtml(s)}</div>
 
       <div class="source-card-controls">
-        <span class="status-pill ${st.cls}" ${s.error ? `title="${escapeHtml(s.error)}"` : ""}>${st.text}</span>
+        <span class="status-dot ${st.cls}"></span>
         <button type="button" class="btn-ping" data-ping="${escapeHtml(s.identifier)}" title="Testar agora" aria-label="Testar ${escapeHtml(s.name)}">
           <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
-          Testar
         </button>
         <label class="switch source-toggle" title="${s.enabled ? "Desativar" : "Ativar"} ${escapeHtml(s.name)}">
           <input type="checkbox" ${s.enabled ? "checked" : ""} data-id="${escapeHtml(s.identifier)}" />
@@ -2971,11 +3071,10 @@ function renderSourceCard(s) {
         </label>
       </div>
     </div>
-    ${s.error && !s.available ? `<p class="source-error"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01"/></svg>${escapeHtml(s.error)}</p>` : ""}
+    ${s.error && !s.available ? `<p class="source-error">${escapeHtml(s.error)}</p>` : ""}
   `;
 
   const input = card.querySelector("input[type=checkbox]");
-
   input?.addEventListener("change", async () => {
     const enabled = input.checked;
     input.disabled = true;
@@ -2985,9 +3084,7 @@ function renderSourceCard(s) {
       toast(`${s.name} ${enabled ? "ativada" : "desativada"} · atualizando…`);
       state.catalogDirty = true;
       state.episodes = [];
-      // Re-render os grupos imediatamente (move o card para o grupo certo)
       await loadSources();
-      // Atualiza catálogo sem bloquear o visual
       reloadAfterSourcesChange();
     } catch (e) {
       input.checked = !enabled;
@@ -3001,8 +3098,8 @@ function renderSourceCard(s) {
     e.preventDefault(); e.stopPropagation();
     const btn = e.currentTarget; btn.disabled = true;
     card.classList.add("is-busy");
-    const pill = card.querySelector(".status-pill");
-    if (pill) { pill.className = "status-pill checking"; pill.textContent = "Testando"; }
+    const dot = card.querySelector(".status-dot");
+    if (dot) dot.className = "status-dot checking";
     try {
       const updated = await api.refreshSourceHealth(s.identifier);
       updateSourceCard(card, updated);
@@ -3021,10 +3118,12 @@ function renderSourceCard(s) {
   return card;
 }
 
+/* ── Load sources ─────────────────────────────────────────────────────────── */
+
 async function loadSources({ recheck = false } = {}) {
   const list = $("#sources-list");
   if (!list) return;
-  list.innerHTML = `<div class="empty-state">Carregando fontes…</div>`;
+  list.innerHTML = `<div class="sources-empty">Carregando fontes…</div>`;
   try {
     await waitSourcesReady();
     let data;
@@ -3035,32 +3134,14 @@ async function loadSources({ recheck = false } = {}) {
       data = await api.sources();
     }
     const items = data.items || [];
-    list.innerHTML = "";
     if (!items.length) {
-      list.innerHTML = `<div class="empty-state"><strong>Nenhuma fonte</strong>Nenhum site foi encontrado.</div>`;
+      list.innerHTML = `<div class="sources-empty"><strong>Nenhuma fonte</strong>Nenhum site foi encontrado.</div>`;
+      $("#sources-dashboard").innerHTML = "";
       return;
     }
 
-    // Summary bar
-    const enabledItems = items.filter(s => s.enabled);
-    const onlineCount = enabledItems.filter(s => s.available).length;
-    const offlineCount = enabledItems.filter(s => !s.available && s.status !== "unknown").length;
-    const disabledCount = items.filter(s => !s.enabled).length;
-    const summary = document.createElement("div");
-    summary.className = "sources-summary";
-    summary.innerHTML = `
-      <div class="sources-summary-stats">
-        <span class="ssumm-stat ssumm-online">
-          <span class="ssumm-dot"></span>${onlineCount} online
-        </span>
-        ${offlineCount > 0 ? `<span class="ssumm-stat ssumm-offline"><span class="ssumm-dot"></span>${offlineCount} offline</span>` : ""}
-        ${disabledCount > 0 ? `<span class="ssumm-stat ssumm-disabled"><span class="ssumm-dot"></span>${disabledCount} desativada${disabledCount !== 1 ? "s" : ""}</span>` : ""}
-      </div>
-      <p class="sources-summary-hint">Ative as fontes que deseja usar. Fontes desativadas não aparecem nas buscas.</p>
-    `;
-    list.appendChild(summary);
+    renderSourcesDashboard(items);
 
-    // Group: enabled online, enabled offline/unknown, disabled
     const groups = [
       { label: "Online", items: items.filter(s => s.enabled && s.available), cls: "group-online" },
       { label: "Com problema", items: items.filter(s => s.enabled && !s.available && s.status !== "unknown"), cls: "group-offline" },
@@ -3068,6 +3149,7 @@ async function loadSources({ recheck = false } = {}) {
       { label: "Desativadas", items: items.filter(s => !s.enabled), cls: "group-disabled" },
     ].filter(g => g.items.length > 0);
 
+    list.innerHTML = "";
     for (const group of groups) {
       const section = document.createElement("div");
       section.className = `sources-group ${group.cls}`;
@@ -3078,7 +3160,7 @@ async function loadSources({ recheck = false } = {}) {
       list.appendChild(section);
     }
   } catch (e) {
-    list.innerHTML = `<div class="empty-state"><strong>Erro</strong>${escapeHtml(e.message)}</div>`;
+    list.innerHTML = `<div class="sources-empty"><strong>Erro</strong>${escapeHtml(e.message)}</div>`;
   }
 }
 
@@ -3089,6 +3171,30 @@ function openSearch() {
   if (!ov) return;
   ov.hidden = false;
   $("#search-input")?.focus();
+  // Show enabled sources
+  updateSearchSourceBar();
+}
+
+async function updateSearchSourceBar() {
+  const el = $("#search-sources");
+  if (!el) return;
+  try {
+    const data = await api.sources();
+    const enabled = (data.items || []).filter(s => s.enabled);
+    const online = enabled.filter(s => s.available);
+    const count = enabled.length;
+    if (!count) {
+      el.innerHTML = `<span class="src-bar-none">Nenhuma fonte ativa</span>`;
+      return;
+    }
+    const chips = enabled.map(s => {
+      const cls = s.available ? "src-chip-on" : "src-chip-off";
+      return `<span class="src-chip ${cls}" style="--src-color:${s.color || "#666"}">${escapeHtml(s.name)}</span>`;
+    }).join("");
+    el.innerHTML = `<span class="src-bar-label">Fontes ativas (${online.length}/${count})</span>${chips}`;
+  } catch {
+    el.innerHTML = "";
+  }
 }
 
 function closeSearch(clear = true) {
@@ -3179,11 +3285,6 @@ function bindUi() {
   });
 
   $("#detail-back")?.addEventListener("click", () => navigate("home"));
-
-  $("#btn-genre-more")?.addEventListener("click", () => {
-    state.genreMoreOpen = !state.genreMoreOpen;
-    renderGenrePickers();
-  });
   $("#btn-genre-back")?.addEventListener("click", () => {
     backToGenrePick();
   });
@@ -3229,16 +3330,6 @@ function bindUi() {
       syncCalendarRangeButtons();
       await loadCalendarPage({ force: true });
     });
-  });
-
-  $("#btn-refresh-health")?.addEventListener("click", async () => {
-    const btn = $("#btn-refresh-health");
-    if (btn) btn.disabled = true;
-    try {
-      await loadSources({ recheck: true });
-    } finally {
-      if (btn) btn.disabled = false;
-    }
   });
 
   $("#btn-clear-history")?.addEventListener("click", async () => {
