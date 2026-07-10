@@ -27,7 +27,7 @@ def main() -> None:
     import uvicorn
 
     target = "web_main:app" if args.reload else app
-    print(f"\n  Animes Web → http://{args.host}:{args.port}\n")
+    print(f"\n  Animes Web -> http://{args.host}:{args.port}\n")
     uvicorn.run(
         target,
         host=args.host,

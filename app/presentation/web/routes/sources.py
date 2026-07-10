@@ -1,8 +1,4 @@
-"""Rotas de gerenciamento de fontes."""
-
-from __future__ import annotations
-
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, HTTPException
 
 from app.presentation.web import serializers as ser
 from app.presentation.web.routes._deps import AppState

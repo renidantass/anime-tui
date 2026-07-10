@@ -623,6 +623,7 @@ export function closePlayer() {
   setSkipIntroVisible(false);
   if (modal) modal.hidden = true;
   document.body.style.overflow = "";
+  document.body.classList.remove("player-active");
   onCloseCb?.();
 }
 
@@ -809,6 +810,7 @@ export async function openPlayer(opts) {
 
   modal.hidden = false;
   document.body.style.overflow = "hidden";
+  document.body.classList.add("player-active");
 
   // retomada depois da OP → não mostra pular
   const startAt = Math.max(0, Number(opts.startAt) || 0);

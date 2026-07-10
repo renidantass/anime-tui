@@ -107,9 +107,14 @@
                 <circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/>
               </svg>
               <input type="search" id="search-input" placeholder="Nome do anime…" autocomplete="off" />
-              <button type="button" class="search-close" id="search-close">Esc</button>
+              <button type="button" class="search-close" id="search-close" aria-label="Fechar busca">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M18 6L6 18M6 6l12 12"/>
+                </svg>
+                <span>Fechar</span>
+              </button>
             </div>
-            <p class="search-hint">Busca nas fontes que você ativou</p>
+            <div class="search-source-bar" id="search-sources"></div>
             <div class="search-results" id="search-results"></div>
           </div>
         </div>
@@ -175,46 +180,32 @@
             <section class="explore-section" id="row-genres">
               <!-- Passo 1: escolher gênero -->
               <div class="genre-step" id="genre-step-pick">
-                <div class="genre-pick-grid" id="genre-popular" role="listbox" aria-label="Gêneros populares">
+                <div class="genre-pick-grid" id="genre-grid" role="listbox" aria-label="Gêneros">
                   <div class="skel skel-genre-tile"></div>
                   <div class="skel skel-genre-tile"></div>
                   <div class="skel skel-genre-tile"></div>
                   <div class="skel skel-genre-tile"></div>
                   <div class="skel skel-genre-tile"></div>
                   <div class="skel skel-genre-tile"></div>
-                </div>
-
-                <div class="genre-more-wrap">
-                  <button type="button" class="btn btn-ghost genre-more-btn" id="btn-genre-more" aria-expanded="false">
-                    Mais gêneros
-                  </button>
-                  <div class="genre-more-panel" id="genre-more-panel" hidden>
-                    <div class="genre-pick-grid genre-pick-grid-compact" id="genre-others" role="listbox" aria-label="Outros gêneros"></div>
-                  </div>
                 </div>
               </div>
 
               <!-- Passo 2: resultados -->
               <div class="genre-step" id="genre-step-results" hidden>
                 <div class="genre-results-bar">
-                  <button type="button" class="btn-back" id="btn-genre-back">
-                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2">
+                  <button type="button" class="btn btn-ghost btn-back-genre" id="btn-genre-back">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2">
                       <path d="M15 18l-6-6 6-6"/>
                     </svg>
                     Trocar gênero
                   </button>
                   <span class="count-pill" id="genre-count">—</span>
                 </div>
-                <!-- âncoras ocultas p/ setExploreHead (título vai só no topbar) -->
-                <h3 class="explore-title" id="genre-active-title" hidden>—</h3>
-                <p class="explore-kicker" id="genre-kicker" hidden></p>
 
                 <div class="explore-panel" id="explore-panel">
                   <div class="genre-loading" id="genre-loading" hidden role="status" aria-live="polite">
                     <div class="genre-loading-card">
-                      <div class="genre-loading-spinner" aria-hidden="true"></div>
                       <p class="genre-loading-title" id="genre-loading-title">Carregando…</p>
-                      <p class="genre-loading-sub" id="genre-loading-sub">Verificando nas fontes</p>
                       <div class="genre-loading-bar" aria-hidden="true">
                         <i id="genre-loading-bar"></i>
                       </div>
@@ -223,7 +214,7 @@
 
                   <div class="shelf-grid explore-grid" id="genre-scroller"></div>
                   <div class="load-more-wrap" id="genre-load-more" hidden>
-                    <button type="button" class="btn-load-more" id="genre-load-more-btn">Carregar mais</button>
+                    <button type="button" class="btn btn-ghost w-100" id="genre-load-more-btn">Carregar mais</button>
                   </div>
                 </div>
               </div>
@@ -272,15 +263,10 @@
           </section>
 
           <section class="view" id="view-sources" hidden>
-            <div class="page-toolbar page-toolbar-end">
-              <button type="button" class="btn btn-ghost" id="btn-refresh-health">
-                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2">
-                  <path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/>
-                </svg>
-                Testar agora
-              </button>
+            <div class="sources-console">
+              <div class="sources-dashboard" id="sources-dashboard"></div>
+              <div class="sources-list" id="sources-list"></div>
             </div>
-            <div class="sources-list" id="sources-list"></div>
           </section>
 
           <section class="view" id="view-detail" hidden>

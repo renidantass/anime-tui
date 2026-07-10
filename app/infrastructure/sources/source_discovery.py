@@ -217,3 +217,4 @@ class SourceDiscovery(ISourceDiscovery):
 
     def health_ready(self) -> bool:
         return self._bg_done
+
