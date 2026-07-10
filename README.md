@@ -71,3 +71,23 @@ Dados preservados sem `--purge`:
 uv sync
 uv run python main.py
 ```
+
+## Interface Web (estilo Netflix)
+
+Além do TUI, há uma UI web escura com hero, carrosséis, busca, histórico e player no navegador.
+
+```bash
+uv sync
+uv run python web_main.py
+```
+
+Abra [http://127.0.0.1:8765](http://127.0.0.1:8765).
+
+Opções:
+
+```bash
+uv run python web_main.py --host 0.0.0.0 --port 8765
+uv run animes-web --reload   # se o script estiver instalado no ambiente
+```
+
+A API REST fica em `/api/*` (episódios, busca, play, proxy de stream, histórico e fontes). O histórico é o mesmo arquivo do TUI (`~/.anime-feed-reader/watch_history.json`).

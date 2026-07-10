@@ -1,17 +1,13 @@
 from __future__ import annotations
 
 import re
-
-import requests
-from bs4 import BeautifulSoup
-
 from urllib.parse import quote
 
 from app.domain import Anime, Episode, PlayContext, Season
 from app.infrastructure.security import is_safe_url
 from app.infrastructure.sources._base import AnimeSource
-from app.infrastructure.sources._playback import context_from_embed
-from app.infrastructure.sources._utils import HEADERS, validate_response
+from app.infrastructure.sources._dooplay import resolve_dooplay_play_context
+from app.infrastructure.sources._utils import extract_episode_number
 
 
 class AnimesOnlineCC(AnimeSource):
@@ -22,53 +18,19 @@ class AnimesOnlineCC(AnimeSource):
     has_search = True
     has_details = True
 
-    default_analyzer = "html.parser"
-
-    urls = {
-        "last_episodes": "https://animesonlinecc.to/episodio/",
-    }
-
-    def __get_episode_number(self, title: str) -> str:
-        episode_separator = 'Episodio'
-        separated_title = title.rpartition(episode_separator)
-        return separated_title[-1].strip() or '0'
-
     def get_play_context(self, episode_link: str) -> PlayContext:
-        if not is_safe_url(episode_link, allow_http=True, resolve_dns=False):
-            return PlayContext.page(episode_link)
-
-        response = requests.get(episode_link, headers=HEADERS, timeout=20)
-        if not validate_response(response):
-            return PlayContext.page(episode_link)
-
-        soup = BeautifulSoup(response.text, self.default_analyzer)
-        playex = soup.find('div', 'playex')
-        if playex is None:
-            return PlayContext.page(episode_link, referer=self.base_url + "/")
-        iframe = playex.iframe
-        if iframe is None:
-            return PlayContext.page(episode_link, referer=self.base_url + "/")
-        src = iframe.get('src', '') or ''
-        if not src or not is_safe_url(src, allow_http=True, resolve_dns=False):
-            return PlayContext.page(episode_link, referer=self.base_url + "/")
-
-        return context_from_embed(
-            src,
-            page_url=episode_link,
-            default_referer=f"{self.base_url}/",
-            default_origin=self.base_url,
-        )
+        ctx = resolve_dooplay_play_context(episode_link, base_url=self.base_url)
+        if ctx is not None and ctx.url:
+            return ctx
+        return PlayContext.page(episode_link, referer=self.base_url + "/")
 
     def get_last_episodes(self) -> list[Episode]:
-        retrieved: list[Episode] = []
-
-        response = requests.get(self.urls["last_episodes"], headers=HEADERS)
-        if not validate_response(response):
+        soup = self._fetch_soup("https://animesonlinecc.to/episodio/")
+        if not soup:
             return []
-        soup = BeautifulSoup(response.text, self.default_analyzer)
-        episodes = soup.find_all("article", "episodes")
 
-        for episode in episodes:
+        retrieved: list[Episode] = []
+        for episode in soup.find_all("article", "episodes"):
             eptitle_div = episode.find('div', 'eptitle')
             if eptitle_div is None:
                 continue
@@ -80,10 +42,10 @@ class AnimesOnlineCC(AnimeSource):
             if title_a is None:
                 continue
             episode_link = title_a['href']
-            episode_number = self.__get_episode_number(raw_title)
+            episode_number = extract_episode_number(raw_title, episode_link)
 
-            poster = episode.find('div', 'poster')
             image = ''
+            poster = episode.find('div', 'poster')
             if poster is not None:
                 img_tag = poster.find('img')
                 if img_tag is not None:
@@ -94,17 +56,11 @@ class AnimesOnlineCC(AnimeSource):
         return retrieved
 
     def search_by(self, name: str) -> list[Anime]:
-        retrieved: list[Anime] = []
-
-        response = requests.get(
-            f"{self.base_url}/?s={quote(name, safe='')}&post_type=animes",
-            headers=HEADERS,
-            timeout=20,
-        )
-        if not validate_response(response):
+        soup = self._fetch_soup(f"{self.base_url}/?s={quote(name, safe='')}&post_type=animes")
+        if not soup:
             return []
-        soup = BeautifulSoup(response.text, self.default_analyzer)
 
+        retrieved: list[Anime] = []
         for article in soup.find_all("article", "tvshows"):
             poster = article.find("div", "poster")
             if poster is None:
@@ -128,27 +84,14 @@ class AnimesOnlineCC(AnimeSource):
         return retrieved
 
     def get_anime_details(self, link: str) -> Anime:
-        response = requests.get(link, headers=HEADERS)
-        if not validate_response(response):
+        soup = self._fetch_soup(link)
+        if not soup:
             return Anime(title='', rating='', link=link)
-        soup = BeautifulSoup(response.text, self.default_analyzer)
 
-        title_elem = soup.find('h1')
-        title = title_elem.get_text().strip() if title_elem else link.rstrip('/').split('/')[-1]
-
-        poster_div = soup.find('div', 'poster')
-        image = ''
-        if poster_div is not None:
-            img_tag = poster_div.find('img')
-            if img_tag is not None:
-                image = img_tag.get('src', '')
-        if not image:
-            fallback_img = soup.find('img', src=True)
-            if fallback_img is not None:
-                image = fallback_img.get('src', '')
+        title = self._extract_title(soup, link)
+        image = self._extract_image(soup)
 
         seasons: list[Season] = []
-
         season_containers = soup.find_all('div', class_=lambda c: c and 'season' in c.lower())
         if not season_containers:
             season_containers = soup.find_all('ul', class_=lambda c: c and ('episod' in c.lower() or 'season' in c.lower()))
@@ -167,8 +110,7 @@ class AnimesOnlineCC(AnimeSource):
                 text = a.get_text().strip()
                 if not href or not text:
                     continue
-                ep_match = re.search(r'\d+', text)
-                ep_num = ep_match.group() if ep_match else '?'
+                ep_num = extract_episode_number(text, href)
                 episodes.append(Episode(number=ep_num, title=text, link=href, video_src=''))
 
             if episodes:
@@ -182,16 +124,9 @@ class AnimesOnlineCC(AnimeSource):
                     continue
                 href = a['href']
                 text = a.get_text().strip()
-                ep_match = re.search(r'\d+', text)
-                ep_num = ep_match.group() if ep_match else '?'
+                ep_num = extract_episode_number(text, href)
                 ep_list.append(Episode(number=ep_num, title=text, link=href, video_src=''))
             if ep_list:
                 seasons.append(Season(number=1, episodes=ep_list))
 
-        return Anime(
-            title=title,
-            rating='',
-            link=link,
-            image=image,
-            seasons=seasons if seasons else None,
-        )
+        return Anime(title=title, rating='', link=link, image=image, seasons=seasons if seasons else None)
