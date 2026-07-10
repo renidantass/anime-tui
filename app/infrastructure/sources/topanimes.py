@@ -399,13 +399,11 @@ class Topanimes(AnimeSource):
         return None
 
     def get_last_episodes(self) -> list[Episode]:
-        retrieved: list[Episode] = []
-
-        response = requests.get(self.base_url, headers=HEADERS)
-        if not validate_response(response):
+        soup = self._fetch_soup(self.base_url)
+        if not soup:
             return []
-        soup = BeautifulSoup(response.text, self.default_analyzer)
 
+        retrieved: list[Episode] = []
         for article in soup.find_all('article', class_='episodes'):
             poster = article.find('div', 'poster')
             if not poster:
@@ -435,7 +433,6 @@ class Topanimes(AnimeSource):
                 if ep_text:
                     title_text = f"{title_text} - {ep_text}".strip(" -")
                 episode_number = get_episode_number(ep_text, title_text, episode_link)
-
             if episode_number in {"?", "0"}:
                 episode_number = get_episode_number(title_text, episode_link)
 
@@ -450,17 +447,11 @@ class Topanimes(AnimeSource):
         return retrieved
 
     def search_by(self, name: str) -> list[Anime]:
-        retrieved: list[Anime] = []
-
-        response = requests.get(
-            f"{self.base_url}/search/{quote_path_segment(name)}",
-            headers=HEADERS,
-            timeout=20,
-        )
-        if not validate_response(response):
+        soup = self._fetch_soup(f"{self.base_url}/search/{quote_path_segment(name)}")
+        if not soup:
             return []
-        soup = BeautifulSoup(response.text, self.default_analyzer)
 
+        retrieved: list[Anime] = []
         for article in soup.find_all('article'):
             div_img = article.find('div', class_='image')
             if not div_img:
@@ -480,13 +471,11 @@ class Topanimes(AnimeSource):
         return retrieved
 
     def get_anime_details(self, link: str) -> Anime:
-        response = requests.get(link, headers=HEADERS)
-        if not validate_response(response):
+        soup = self._fetch_soup(link)
+        if not soup:
             return Anime(title='', rating='', link=link)
-        soup = BeautifulSoup(response.text, self.default_analyzer)
 
-        title_elem = soup.find('h1')
-        title = title_elem.get_text().strip() if title_elem else link.rstrip('/').split('/')[-1]
+        title = self._extract_title(soup, link)
 
         img = soup.find('img', class_=lambda c: c and 'poster' in c.lower() if c else False)
         if not img:

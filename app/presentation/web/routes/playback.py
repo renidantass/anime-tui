@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from urllib.parse import quote
 
 import requests
@@ -10,19 +11,89 @@ from fastapi.responses import Response, StreamingResponse
 
 from app.application.dtos import PlayCandidate
 from app.application.play_orchestration_service import PlayRequest as OrchestratedPlayRequest
+from app.presentation.web.routes._deps import AppState
 from app.presentation.web.schemas import WebPlayRequest
 
 router = APIRouter(prefix="/api", tags=["playback"])
 
-def _state(request: Request):
-    return request.app.state
+
+# ── Helpers de streaming ─────────────────────────────────────────────────────
+
+
+def _fetch_upstream(url: str, headers: dict) -> requests.Response:
+    try:
+        upstream = requests.get(
+            url,
+            headers=headers,
+            stream=True,
+            timeout=(10, 60),
+            allow_redirects=True,
+        )
+    except requests.RequestException as e:
+        raise HTTPException(502, f"Erro ao acessar stream: {e}") from e
+    if upstream.status_code >= 400:
+        body = upstream.content[:500]
+        upstream.close()
+        raise HTTPException(502, f"Upstream retornou {upstream.status_code}: {body[:120]!r}")
+    return upstream
+
+
+def _stream_chunks(upstream: requests.Response) -> Iterator[bytes]:
+    try:
+        for chunk in upstream.iter_content(chunk_size=64 * 1024):
+            if chunk:
+                yield chunk
+    finally:
+        upstream.close()
+
+
+def _build_stream_headers(upstream: requests.Response, *, extra: dict | None = None) -> dict[str, str]:
+    headers_out = {"Access-Control-Allow-Origin": "*"}
+    if extra:
+        headers_out.update(extra)
+    for h in ("Content-Length", "Content-Range", "Content-Type"):
+        if h in upstream.headers:
+            headers_out[h] = upstream.headers[h]
+    return headers_out
+
+
+def _stream_status(upstream: requests.Response) -> int:
+    return 206 if upstream.status_code == 206 else 200
+
+
+def _handle_m3u8(upstream: requests.Response, base_url: str, token: str, state) -> Response:
+    text = upstream.content.decode("utf-8", errors="replace")
+    upstream.close()
+
+    def uri_builder(abs_url: str) -> str:
+        return f"/api/segment/{token}?u={quote(abs_url, safe='')}"
+
+    rewritten = state.rewrite_m3u8(text, base_url, uri_builder)
+    return Response(
+        content=rewritten,
+        media_type="application/vnd.apple.mpegurl",
+        headers={"Access-Control-Allow-Origin": "*", "Cache-Control": "no-cache"},
+    )
+
+
+def _validate_session(state, token: str, url: str):
+    session = state.sessions.get(token)
+    if not session:
+        raise HTTPException(404, "Sessão de stream expirada")
+    if not state.is_safe_url(url, allow_http=True, resolve_dns=True):
+        raise HTTPException(403, "Stream bloqueado por segurança")
+    return session
+
+
+def _is_m3u8(content_type: str, url: str) -> bool:
+    return "mpegurl" in content_type.lower() or url.lower().endswith(".m3u8")
+
+
+# ── Rotas ────────────────────────────────────────────────────────────────────
 
 
 @router.post("/play")
-def play(request: Request, body: WebPlayRequest):
-    state = request.app.state
-    state.ensure_sources()
-
+def play(state: AppState, body: WebPlayRequest):
     raw_candidates = [
         PlayCandidate(name=c.name, link=c.link, color=c.color)
         for c in body.candidates
@@ -68,8 +139,7 @@ def play(request: Request, body: WebPlayRequest):
 
 
 @router.get("/stream/{token}")
-def stream_proxy(token: str, request: Request):
-    state = request.app.state
+def stream_proxy(token: str, state: AppState, request: Request):
     session = state.sessions.get(token)
     if not session:
         raise HTTPException(404, "Sessão de stream expirada")
@@ -78,65 +148,25 @@ def stream_proxy(token: str, request: Request):
     if not state.is_safe_url(url, allow_http=True, resolve_dns=True):
         raise HTTPException(403, "Stream bloqueado por segurança")
 
-    range_header = request.headers.get("range")
     upstream_headers = dict(session.headers)
+    range_header = request.headers.get("range")
     if range_header:
         upstream_headers["Range"] = range_header
 
-    try:
-        upstream = requests.get(
-            url,
-            headers=upstream_headers,
-            stream=True,
-            timeout=(10, 60),
-            allow_redirects=True,
-        )
-    except requests.RequestException as e:
-        raise HTTPException(502, f"Erro ao obter stream: {e}") from e
-
-    if upstream.status_code >= 400:
-        body = upstream.content[:500]
-        upstream.close()
-        raise HTTPException(
-            502,
-            f"Upstream retornou {upstream.status_code}: {body[:120]!r}",
-        )
+    upstream = _fetch_upstream(url, upstream_headers)
 
     content_type = upstream.headers.get("Content-Type", "application/octet-stream")
-    if "mpegurl" in content_type.lower() or url.lower().endswith(".m3u8"):
-        text = upstream.content.decode("utf-8", errors="replace")
-        upstream.close()
+    if _is_m3u8(content_type, url):
+        return _handle_m3u8(upstream, url, token, state)
 
-        def uri_builder(abs_url: str) -> str:
-            return f"/api/segment/{token}?u={quote(abs_url, safe='')}"
-
-        rewritten = state.rewrite_m3u8(text, url, uri_builder)
-        return Response(
-            content=rewritten,
-            media_type="application/vnd.apple.mpegurl",
-            headers={"Access-Control-Allow-Origin": "*", "Cache-Control": "no-cache"},
-        )
-
-    def generate():
-        try:
-            for chunk in upstream.iter_content(chunk_size=64 * 1024):
-                if chunk:
-                    yield chunk
-        finally:
-            upstream.close()
-
-    headers_out: dict[str, str] = {
+    extra = {
         "Accept-Ranges": "bytes",
-        "Access-Control-Allow-Origin": "*",
         "Access-Control-Expose-Headers": "Content-Length, Content-Range, Accept-Ranges",
     }
-    for h in ("Content-Length", "Content-Range", "Content-Type"):
-        if h in upstream.headers:
-            headers_out[h] = upstream.headers[h]
-
-    status = 206 if upstream.status_code == 206 else 200
+    headers_out = _build_stream_headers(upstream, extra=extra)
+    status = _stream_status(upstream)
     return StreamingResponse(
-        generate(),
+        _stream_chunks(upstream),
         status_code=status,
         media_type=content_type,
         headers=headers_out,
@@ -146,10 +176,10 @@ def stream_proxy(token: str, request: Request):
 @router.get("/segment/{token}")
 def stream_segment(
     token: str,
+    state: AppState,
     request: Request,
     u: str = Query(..., min_length=1),
 ):
-    state = request.app.state
     session = state.sessions.get(token)
     if not session:
         raise HTTPException(404, "Sessão expirada")
@@ -161,53 +191,25 @@ def stream_segment(
     if range_header:
         headers["Range"] = range_header
 
-    try:
-        upstream = requests.get(
-            u, headers=headers, stream=True, timeout=(10, 60), allow_redirects=True
-        )
-    except requests.RequestException as e:
-        raise HTTPException(502, str(e)) from e
-
-    if upstream.status_code >= 400:
-        upstream.close()
-        raise HTTPException(502, f"Segmento upstream {upstream.status_code}")
-
-    def generate():
-        try:
-            for chunk in upstream.iter_content(chunk_size=64 * 1024):
-                if chunk:
-                    yield chunk
-        finally:
-            upstream.close()
+    upstream = _fetch_upstream(u, headers)
 
     content_type = upstream.headers.get("Content-Type", "application/octet-stream")
-    if "mpegurl" in content_type.lower() or u.lower().endswith(".m3u8"):
-        text = upstream.content.decode("utf-8", errors="replace")
-        upstream.close()
+    if _is_m3u8(content_type, u):
+        return _handle_m3u8(upstream, u, token, state)
 
-        def uri_builder(abs_url: str) -> str:
-            return f"/api/segment/{token}?u={quote(abs_url, safe='')}"
-
-        rewritten = state.rewrite_m3u8(text, u, uri_builder)
-        return Response(
-            content=rewritten,
-            media_type="application/vnd.apple.mpegurl",
-            headers={"Access-Control-Allow-Origin": "*", "Cache-Control": "no-cache"},
-        )
-
-    headers_out = {"Access-Control-Allow-Origin": "*"}
-    for h in ("Content-Length", "Content-Range", "Content-Type"):
-        if h in upstream.headers:
-            headers_out[h] = upstream.headers[h]
-    status = 206 if upstream.status_code == 206 else 200
+    headers_out = _build_stream_headers(upstream)
+    status = _stream_status(upstream)
     return StreamingResponse(
-        generate(), status_code=status, media_type=content_type, headers=headers_out
+        _stream_chunks(upstream),
+        status_code=status,
+        media_type=content_type,
+        headers=headers_out,
     )
 
 
 @router.get("/skip-times")
 def skip_times_endpoint(
-    request: Request,
+    state: AppState,
     mal_id: int = Query(..., ge=1, description="MyAnimeList ID"),
     episode: int = Query(..., ge=1, description="Número do episódio"),
     episode_length: float = Query(
@@ -217,7 +219,7 @@ def skip_times_endpoint(
     ),
     types: str = Query("op", description="Tipos separados por vírgula: op,ed,recap…"),
 ):
-    st = request.app.state.skip_times
+    st = state.skip_times
     type_list = [t.strip() for t in (types or "op").split(",") if t.strip()]
     return st.get_skip_times(
         mal_id=mal_id,
@@ -228,9 +230,9 @@ def skip_times_endpoint(
 
 
 @router.get("/image")
-def image_proxy(request: Request, url: str = Query(..., min_length=1)):
+def image_proxy(state: AppState, url: str = Query(..., min_length=1)):
     try:
-        data, media_type = request.app.state.fetch_proxied_image(url)
+        data, media_type = state.fetch_proxied_image(url)
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
     except RuntimeError as e:

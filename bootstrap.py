@@ -7,11 +7,11 @@ Injeta tudo em app.state (web) ou retorna objetos (TUI).
 from __future__ import annotations
 
 import logging
-from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from app.application._executor import get_executor
 from app.application.anime_service import AnimeService
 from app.application.play_orchestration_service import PlayOrchestrationService
 from app.application.skip_times_service import SkipTimesService
@@ -38,7 +38,6 @@ from app.infrastructure.streaming.hls_proxy import rewrite_m3u8
 from app.infrastructure.streaming.image_proxy import fetch_proxied_image
 
 logger = logging.getLogger(__name__)
-_executor = ThreadPoolExecutor(max_workers=12)
 
 
 def _make_anon_lambda(fn, *args):
@@ -85,7 +84,10 @@ def web_lifespan():
         svc = build_anime_service()
         hst = WatchHistoryService()
         sessions = StreamSessionStore()
-        resolution = StreamResolutionService(resolve_blogger=resolve_blogger_context)
+        resolution = StreamResolutionService(
+            probe=probe_stream,
+            finalize=lambda ctx: finalize_with_blogger(ctx, resolve_blogger=resolve_blogger_context),
+        )
         orchestrator = PlayOrchestrationService(
             anime_service=svc,
             history_service=hst,
@@ -113,9 +115,9 @@ def web_lifespan():
             finally:
                 app.state.sources_ready = True
 
-        _executor.submit(warm)
+        get_executor().submit(warm)
         yield
-        _executor.shutdown(wait=False, cancel_futures=True)
+        get_executor().shutdown(wait=False, cancel_futures=True)
     return lifespan
 
 

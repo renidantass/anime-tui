@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Query
 
 from app.application.title_utils import normalize_watch_titles
 from app.presentation.web import serializers as ser
+from app.presentation.web.routes._deps import AppState
 from app.presentation.web.schemas import HistoryAddRequest, ProgressRequest
 
 router = APIRouter(prefix="/api/history", tags=["history"])
@@ -13,14 +14,14 @@ router = APIRouter(prefix="/api/history", tags=["history"])
 
 @router.get("")
 def get_history_list(
-    request: Request,
+    state: AppState,
     dedupe: bool = True,
     mode: str = Query(
         "anime",
         description="anime = 1 card por anime; episode = 1 por episódio; all = bruto",
     ),
 ):
-    hs = request.app.state.history
+    hs = state.history
     mode = (mode or "anime").strip().lower()
     if mode == "all":
         entries = hs.get_all()
@@ -32,11 +33,11 @@ def get_history_list(
 
 
 @router.post("")
-def add_history(request: Request, body: HistoryAddRequest):
+def add_history(state: AppState, body: HistoryAddRequest):
     anime_t, ep_t, ep_n = normalize_watch_titles(
         body.anime_title, body.episode_title, body.episode_number
     )
-    entry = request.app.state.history.add_entry(
+    entry = state.history.add_entry(
         anime_title=anime_t,
         episode_title=ep_t,
         episode_number=ep_n,
@@ -52,14 +53,14 @@ def add_history(request: Request, body: HistoryAddRequest):
 
 
 @router.post("/progress")
-def update_progress(request: Request, body: ProgressRequest):
-    request.app.state.history.update_progress(
+def update_progress(state: AppState, body: ProgressRequest):
+    state.history.update_progress(
         body.episode_link, body.progress_seconds, body.duration_seconds
     )
     return {"ok": True}
 
 
 @router.delete("")
-def clear_history(request: Request):
-    request.app.state.history.clear_all()
+def clear_history(state: AppState):
+    state.history.clear_all()
     return {"ok": True}

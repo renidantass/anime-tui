@@ -39,6 +39,10 @@ const state = {
   genreMoreOpen: false,
   /** Cache client: genre → { items, at } */
   genreCache: {},
+  /** Paginação */
+  genrePage: 1,
+  genreHasNext: false,
+  genreCurrentGenre: "",
   /** Calendário de lançamentos */
   calendarDays: 7,
   /** Cruzar episódios com fontes (desligado por padrão — mais rápido) */
@@ -390,27 +394,48 @@ function historyCard(item) {
 
 // ── Home ─────────────────────────────────────────────────────────────────────
 
-async function waitSourcesReady(maxMs = 45000) {
-  const start = Date.now();
-  while (Date.now() - start < maxMs) {
-    try {
-      const h = await api.health();
-      if (h.sources_ready) return;
-    } catch {
-      /* retry */
+let _sourcesReadyPromise = null;
+
+async function waitSourcesReady() {
+  if (_sourcesReadyPromise) return _sourcesReadyPromise;
+  _sourcesReadyPromise = (async () => {
+    const maxMs = 45000;
+    const start = Date.now();
+    while (Date.now() - start < maxMs) {
+      try {
+        const h = await api.health();
+        if (h.sources_ready) return;
+      } catch {
+        /* retry */
+      }
+      await sleep(400);
     }
-    await sleep(400);
-  }
+  })();
+  return _sourcesReadyPromise;
 }
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+async function hasAnyEnabledSource() {
+  try {
+    const data = await api.sources();
+    return (data.items || []).some((s) => s.enabled);
+  } catch {
+    return true; // em caso de erro, assume que há fontes para não bloquear
+  }
+}
+
 async function loadHome({ silent = false } = {}) {
   const seq = ++state.catalogReloadSeq;
   state.loadingCatalog = true;
   state.catalogDirty = true;
+
+  // Se o hero estava em modo onboarding, restaura a estrutura original
+  // para que renderHero() encontre #hero-title, #hero-bg etc.
+  restoreHeroStructure();
+
   const scroller = $("#episodes-scroller");
   if (scroller) {
     scroller.innerHTML = skeletonShelf(8);
@@ -425,10 +450,20 @@ async function loadHome({ silent = false } = {}) {
     if (!silent) toast("Carregando episódios…");
     await waitSourcesReady();
     const data = await api.episodes();
-    // ignora resposta antiga se outro reload foi pedido no meio
     if (seq !== state.catalogReloadSeq) return;
     state.episodes = data.items || [];
     state.catalogDirty = false;
+
+    // Se não há episódios, verificar se é por falta de fontes ativas
+    if (!state.episodes.length) {
+      const anyEnabled = await hasAnyEnabledSource();
+      if (!anyEnabled) {
+        showNoSourcesOnboarding();
+        if (count) count.textContent = "0";
+        return;
+      }
+    }
+
     renderHero();
     renderEpisodesRow();
     await renderContinueRow();
@@ -445,6 +480,104 @@ async function loadHome({ silent = false } = {}) {
     }
   }
 }
+
+function restoreHeroStructure() {
+  const viewHome = $("#view-home");
+  if (!viewHome || !viewHome.querySelector(".onboarding-hero")) return;
+
+  // Restaura o .home-layout original no lugar do onboarding
+  viewHome.innerHTML = `
+    <div class="home-layout">
+      <article class="spotlight" id="hero">
+        <div class="spotlight-art" id="hero-bg"></div>
+        <div class="spotlight-shade"></div>
+        <div class="spotlight-body">
+          <span class="tag tag-hot" id="hero-badge">Em destaque</span>
+          <h2 class="spotlight-title" id="hero-title">Carregando…</h2>
+          <p class="spotlight-meta" id="hero-meta"></p>
+          <p class="spotlight-desc" id="hero-desc"></p>
+          <div class="spotlight-actions">
+            <button type="button" class="btn btn-accent" id="hero-play">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+              Assistir
+            </button>
+            <button type="button" class="btn btn-ghost" id="hero-info">Outras fontes</button>
+          </div>
+        </div>
+      </article>
+
+      <section class="queue-panel" id="row-continue" hidden>
+        <div class="section-head">
+          <div><h3>Continuar</h3></div>
+          <a href="#/history" class="section-link">Ver tudo →</a>
+        </div>
+        <div class="queue-scroller" id="continue-scroller"></div>
+      </section>
+
+      <section class="shelf-section">
+        <div class="section-head">
+          <div><h3>Recém-lançados</h3></div>
+          <span class="count-pill" id="episodes-count">—</span>
+        </div>
+        <div class="shelf-grid" id="episodes-scroller"></div>
+      </section>
+    </div>
+  `;
+
+  // Rebinda os eventos do hero
+  $("#hero-play")?.addEventListener("click", () => {
+    if (state.heroItem) onEpisodeClick(state.heroItem);
+  });
+  $("#hero-info")?.addEventListener("click", () => {
+    const item = state.heroItem;
+    if (!item) return;
+    const sources = (item.sources || []).filter((s) => s?.link);
+    if (hasAudioChoice(sources)) {
+      openAudioChoiceModal(item.title, sources, (picked) => {
+        if (picked.length > 1) {
+          openSourceModal(item.title, picked, (src) => playEpisodeFromSources(item, [src]));
+          return;
+        }
+        playEpisodeFromSources(item, picked);
+      });
+      return;
+    }
+    if (sources.length > 1) {
+      openSourceModal(item.title, sources, (src) => playEpisodeFromSources(item, [src]));
+      return;
+    }
+    onEpisodeClick(item);
+  });
+}
+
+function showNoSourcesOnboarding() {
+  const viewHome = $("#view-home");
+  if (!viewHome) return;
+
+  // Substitui o .home-layout inteiro por uma tela centralizada
+  // (evita ficar preso nas restrições de grid do .spotlight)
+  viewHome.innerHTML = `
+    <div class="onboarding-hero">
+      <div class="onboarding-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+          <ellipse cx="12" cy="6" rx="7" ry="2.5"/>
+          <path d="M5 6v4c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5V6"/>
+          <path d="M5 10v4c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5v-4"/>
+          <path d="M5 14v4c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5v-4"/>
+        </svg>
+      </div>
+      <h2 class="onboarding-title">Nenhuma fonte ativa</h2>
+      <p class="onboarding-desc">
+        Escolha pelo menos uma fonte para começar a ver os episódios disponíveis.
+      </p>
+      <a href="#/sources" class="btn btn-accent onboarding-cta">
+        Configurar fontes
+      </a>
+      <p class="onboarding-hint">Você pode ativar e desativar fontes a qualquer momento nas configurações.</p>
+    </div>
+  `;
+}
+
 
 /** Após mudar fontes: recarrega catálogo (e busca aberta, se houver). */
 async function reloadAfterSourcesChange() {
@@ -709,6 +842,11 @@ async function loadGenreBrowse(genre, { silent = false, force = false } = {}) {
   state.genreLoading = true;
   state.genreItems = [];
   state.genreCatalog = [];
+  state.genrePage = 1;
+  state.genreHasNext = false;
+  state.genreCurrentGenre = genre;
+  const moreWrap = $("#genre-load-more");
+  if (moreWrap) moreWrap.hidden = true;
   setGenreStep("results");
   renderGenrePickers();
 
@@ -722,6 +860,9 @@ async function loadGenreBrowse(genre, { silent = false, force = false } = {}) {
   const cached = state.genreCache[genre];
   if (!force && cached && Date.now() - cached.at < GENRE_CACHE_MS && cached.items?.length) {
     if (seq !== state.genreSeq) return;
+    state.genrePage = 1;
+    state.genreHasNext = true; // optimistic — será atualizado no fetch completo
+    state.genreCurrentGenre = genre;
     state.genreItems = cached.items;
     showGenreLoading(false);
     renderGenreAvailable(cached.items, { label, animated: false });
@@ -883,6 +1024,9 @@ async function loadGenreBrowse(genre, { silent = false, force = false } = {}) {
         toast(`${found.length} anime${found.length === 1 ? "" : "s"} de ${label}`);
       }
     }
+    // store pagination state for loadMore
+    state.genrePage = Number(catalog.page) || 1;
+    state.genreHasNext = Boolean(catalog.has_next);
   } catch (e) {
     if (seq !== state.genreSeq) return;
     if (!silent) toast(e.message || "Não foi possível buscar o gênero", true);
@@ -895,7 +1039,55 @@ async function loadGenreBrowse(genre, { silent = false, force = false } = {}) {
       state.genreLoading = false;
       showGenreLoading(false);
       renderGenrePickers();
+      _renderGenreLoadMore();
     }
+  }
+}
+
+/** Carrega a próxima página do mesmo gênero (via /browse) e anexa ao grid. */
+async function loadMoreGenre() {
+  const genre = state.genreCurrentGenre || state.selectedGenre;
+  if (!genre || !state.genreHasNext) return;
+
+  const btn = $("#genre-load-more-btn");
+  if (btn) { btn.disabled = true; btn.textContent = "Carregando…"; }
+
+  const nextPage = state.genrePage + 1;
+  try {
+    const data = await api.browseGenre(genre, nextPage, 16);
+    const items = data.items || [];
+    if (!items.length) {
+      state.genreHasNext = false;
+      _renderGenreLoadMore();
+      return;
+    }
+    state.genrePage = nextPage;
+    state.genreHasNext = Boolean(data.has_next);
+    const seen = new Set(state.genreItems.map((i) => (i.title || "").trim().toLowerCase()));
+    for (const item of items) {
+      const key = (item.title || "").trim().toLowerCase();
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      state.genreItems.push(item);
+      appendGenreCard(item);
+    }
+    const count = $("#genre-count");
+    if (count) count.textContent = `${state.genreItems.length}`;
+  } catch (e) {
+    toast(e.message || "Falha ao carregar mais", true);
+  } finally {
+    _renderGenreLoadMore();
+  }
+}
+
+function _renderGenreLoadMore() {
+  const wrap = $("#genre-load-more");
+  const btn = $("#genre-load-more-btn");
+  if (wrap) wrap.hidden = !state.genreHasNext;
+  if (btn) {
+    btn.disabled = false;
+    btn.textContent = "Carregar mais";
+    btn.onclick = () => loadMoreGenre();
   }
 }
 
@@ -915,6 +1107,8 @@ async function loadGenreBrowseLegacy(genre, { seq, silent, label, scroller, coun
     const items = data.items || [];
     state.genreItems = items;
     state.genreCache[genre] = { items, at: Date.now() };
+    state.genrePage = Number(data.page) || 1;
+    state.genreHasNext = Boolean(data.has_next);
     renderGenreAvailable(items, { label: data.label || label, animated: true });
     if (!items.length) {
       setExploreHead(data.label || label, "Nada encontrado");
@@ -934,6 +1128,7 @@ async function loadGenreBrowseLegacy(genre, { seq, silent, label, scroller, coun
       state.genreLoading = false;
       showGenreLoading(false);
       renderGenrePickers();
+      _renderGenreLoadMore();
     }
   }
 }
@@ -2641,73 +2836,145 @@ function sourceInitials(name) {
   return (parts[0][0] + parts[1][0]).toUpperCase();
 }
 
+function donutChart(s) {
+  const pct = s.uptime_percent != null ? Math.max(0, Math.min(100, s.uptime_percent)) : null;
+  const r = 18; const c = 2 * Math.PI * r;
+  const fill = c * ((pct ?? 0) / 100);
+  const color = pct == null ? "var(--dimmer)" : pct >= 99 ? "var(--ok)" : pct >= 90 ? "var(--gold)" : "var(--danger)";
+  const latency = s.latency_ms != null ? formatLatency(s.latency_ms) : "—";
+  return `
+    <svg viewBox="0 0 52 52" width="52" height="52">
+      <circle cx="26" cy="26" r="${r}" fill="none" stroke="var(--line)" stroke-width="4"/>
+      <circle cx="26" cy="26" r="${r}" fill="none" stroke="${color}" stroke-width="4"
+        stroke-dasharray="${fill} ${c}" stroke-dashoffset="${(c - fill) / 2}"
+        transform="rotate(-90 26 26)" stroke-linecap="round"/>
+      <text x="26" y="25" text-anchor="middle" fill="var(--text)" font-size="10" font-weight="800">${latency}</text>
+      <text x="26" y="36" text-anchor="middle" fill="var(--dim)" font-size="7" font-weight="600">${pct != null ? Math.round(pct) + "%" : "—"}</text>
+    </svg>`;
+}
+
+function sparklineBars(recent) {
+  if (!recent || !recent.length) return "";
+  // GitHub-style contribution grid
+  const cells = recent.slice(-28).map((ok) => {
+    const cls = ok ? "spark-cell spark-cell--on" : "spark-cell spark-cell--off";
+    return `<span class="${cls}"></span>`;
+  }).join("");
+  return `<div class="spark-grid">${cells}</div>`;
+}
+
+function sourceMeta(s) {
+  const parts = [];
+  if (s.latency_ms != null) parts.push(formatLatency(s.latency_ms));
+  if (s.checks_total > 0) {
+    parts.push(formatUptime(s.uptime_percent));
+    parts.push(formatCheckTime(s.last_check_at));
+  }
+  return parts.join(" · ");
+}
+
+function updateSourceCard(card, updated) {
+  const st = statusLabel(updated.status, updated.available);
+  const pill = card.querySelector(".status-pill");
+  if (pill) {
+    pill.className = `status-pill ${st.cls}`;
+    pill.textContent = st.text;
+    if (updated.error) pill.title = updated.error;
+    else pill.removeAttribute("title");
+  }
+
+  // Update stat values
+  const statValues = card.querySelectorAll(".source-stat-value");
+  if (statValues[0]) {
+    const latencyStr = updated.latency_ms != null ? formatLatency(updated.latency_ms) : "—";
+    statValues[0].textContent = latencyStr;
+    statValues[0].className = `source-stat-value ${updated.latency_ms != null ? latencyClass(updated.latency_ms) : ""}`;
+  }
+  if (statValues[1]) {
+    const uptimePct = updated.uptime_percent != null ? Math.round(updated.uptime_percent) : null;
+    statValues[1].textContent = uptimePct != null ? uptimePct + "%" : "—";
+    statValues[1].className = `source-stat-value ${uptimePct != null ? uptimeClass(uptimePct) : ""}`;
+  }
+
+  const spark = card.querySelector(".source-sparkline");
+  if (spark) spark.innerHTML = sparklineBars(updated.recent_checks);
+
+  const errEl = card.querySelector(".source-error");
+  if (updated.error && !updated.available) {
+    if (!errEl) {
+      const p = document.createElement("p");
+      p.className = "source-error";
+      p.innerHTML = `<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01"/></svg>${escapeHtml(updated.error)}`;
+      card.appendChild(p);
+    } else {
+      errEl.innerHTML = `<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01"/></svg>${escapeHtml(updated.error)}`;
+    }
+  } else if (errEl) {
+    errEl.remove();
+  }
+  card.className = `source-card is-${st.cls}${updated.enabled === false ? " is-disabled" : ""}`;
+  card.classList.remove("is-busy");
+}
+
 function renderSourceCard(s) {
   const st = statusLabel(s.status, s.available);
-  const uptime = s.uptime_percent;
   const card = document.createElement("article");
-  card.className = `source-card is-${st.cls}`;
+  card.className = `source-card is-${st.cls}${s.enabled ? "" : " is-disabled"}`;
   card.dataset.id = s.identifier;
 
-  const caps = [
-    s.has_search ? "busca" : null,
-    s.has_details ? "ficha" : null,
-    s.enabled ? "ligada" : "desligada",
-  ].filter(Boolean);
+  const uptimePct = s.uptime_percent != null ? Math.round(s.uptime_percent) : null;
+  const latencyStr = s.latency_ms != null ? formatLatency(s.latency_ms) : null;
+  const lastCheck = s.last_check_at ? formatCheckTime(s.last_check_at) : null;
+
+  const capabilityBadges = [
+    s.has_search ? `<span class="source-cap-badge">Busca</span>` : "",
+    s.has_details ? `<span class="source-cap-badge">Detalhes</span>` : "",
+  ].filter(Boolean).join("");
 
   card.innerHTML = `
-    <div class="source-card-main">
-      <div class="source-card-head">
+    <div class="source-card-body">
+      <div class="source-card-identity">
         <span class="source-brand" style="--brand:${s.color || "#666"};background:${s.color || "#666"}">${escapeHtml(sourceInitials(s.name))}</span>
         <div class="source-card-titles">
           <div class="source-card-name">${escapeHtml(s.name)}</div>
           <div class="source-card-host">${escapeHtml(hostFromUrl(s.base_url) || s.identifier)}</div>
-        </div>
-        <span class="status-pill ${st.cls}">${st.text}</span>
-      </div>
-      <div class="source-metrics">
-        <div class="metric">
-          <span class="metric-label">Disponível</span>
-          <div class="metric-value ${uptimeClass(uptime)}">${escapeHtml(formatUptime(uptime))}</div>
-          <div class="uptime-bar" title="Testes recentes">
-            <i style="width:${uptime != null ? Math.max(0, Math.min(100, uptime)) : 0}%"></i>
-          </div>
-        </div>
-        <div class="metric">
-          <span class="metric-label">Latência</span>
-          <div class="metric-value ${latencyClass(s.latency_ms)}">${escapeHtml(formatLatency(s.latency_ms))}</div>
-        </div>
-        <div class="metric">
-          <span class="metric-label">Último teste</span>
-          <div class="metric-value" style="font-size:0.85rem">${escapeHtml(formatCheckTime(s.last_check_at))}</div>
+          ${capabilityBadges ? `<div class="source-caps">${capabilityBadges}</div>` : ""}
         </div>
       </div>
-      <div class="source-caps">
-        ${caps.map((c) => `<span class="cap-chip">${escapeHtml(c)}</span>`).join("")}
-        ${s.checks_total ? `<span class="cap-chip">${s.checks_ok}/${s.checks_total} ok</span>` : ""}
+
+      <div class="source-card-stats">
+        <div class="source-stat">
+          <span class="source-stat-value ${latencyStr ? latencyClass(s.latency_ms) : ""}"
+          >${latencyStr ?? "—"}</span>
+          <span class="source-stat-label">Latência</span>
+        </div>
+        <div class="source-stat">
+          <span class="source-stat-value ${uptimePct != null ? uptimeClass(uptimePct) : ""}"
+          >${uptimePct != null ? uptimePct + "%" : "—"}</span>
+          <span class="source-stat-label">Uptime</span>
+        </div>
+        <div class="source-sparkline-wrap">
+          <div class="source-sparkline">${sparklineBars(s.recent_checks)}</div>
+          ${lastCheck ? `<span class="source-stat-label">Última: ${lastCheck}</span>` : ""}
+        </div>
       </div>
-      ${s.error && !s.available ? `<p class="source-error">Erro: ${escapeHtml(s.error)}</p>` : ""}
-    </div>
-    <div class="source-card-aside">
-      <div class="source-toggle-wrap">
-        <span class="source-toggle-label">${s.enabled ? "Ligada" : "Desligada"}</span>
-        <label class="switch" title="Usar esta fonte">
+
+      <div class="source-card-controls">
+        <span class="status-pill ${st.cls}" ${s.error ? `title="${escapeHtml(s.error)}"` : ""}>${st.text}</span>
+        <button type="button" class="btn-ping" data-ping="${escapeHtml(s.identifier)}" title="Testar agora" aria-label="Testar ${escapeHtml(s.name)}">
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
+          Testar
+        </button>
+        <label class="switch source-toggle" title="${s.enabled ? "Desativar" : "Ativar"} ${escapeHtml(s.name)}">
           <input type="checkbox" ${s.enabled ? "checked" : ""} data-id="${escapeHtml(s.identifier)}" />
           <span class="switch-slider"></span>
         </label>
       </div>
-      <div class="source-card-actions">
-        <button type="button" class="btn-icon-sm" data-ping="${escapeHtml(s.identifier)}" title="Testar agora">
-          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2">
-            <path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/>
-          </svg>
-          Testar
-        </button>
-      </div>
     </div>
+    ${s.error && !s.available ? `<p class="source-error"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01"/></svg>${escapeHtml(s.error)}</p>` : ""}
   `;
 
   const input = card.querySelector("input[type=checkbox]");
-  const labelEl = card.querySelector(".source-toggle-label");
 
   input?.addEventListener("change", async () => {
     const enabled = input.checked;
@@ -2715,42 +2982,35 @@ function renderSourceCard(s) {
     card.classList.add("is-busy");
     try {
       await api.setSource(s.identifier, enabled);
-      if (labelEl) labelEl.textContent = enabled ? "Ligada" : "Desligada";
       toast(`${s.name} ${enabled ? "ativada" : "desativada"} · atualizando…`);
       state.catalogDirty = true;
       state.episodes = [];
-      await reloadAfterSourcesChange();
+      // Re-render os grupos imediatamente (move o card para o grupo certo)
+      await loadSources();
+      // Atualiza catálogo sem bloquear o visual
+      reloadAfterSourcesChange();
     } catch (e) {
       input.checked = !enabled;
       toast(e.message || "Não foi possível alterar a fonte", true);
-    } finally {
       input.disabled = false;
       card.classList.remove("is-busy");
     }
   });
 
   card.querySelector("[data-ping]")?.addEventListener("click", async (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    const btn = e.currentTarget;
-    btn.disabled = true;
+    e.preventDefault(); e.stopPropagation();
+    const btn = e.currentTarget; btn.disabled = true;
     card.classList.add("is-busy");
     const pill = card.querySelector(".status-pill");
-    if (pill) {
-      pill.className = "status-pill checking";
-      pill.textContent = "Testando";
-    }
+    if (pill) { pill.className = "status-pill checking"; pill.textContent = "Testando"; }
     try {
       const updated = await api.refreshSourceHealth(s.identifier);
-      // re-render only this card
-      const next = renderSourceCard(updated);
-      card.replaceWith(next);
-      toast(
-        updated.available
-          ? `${updated.name} online · ${formatLatency(updated.latency_ms)}`
-          : `${updated.name} offline${updated.error ? ` (${updated.error})` : ""}`,
-        !updated.available
-      );
+      updateSourceCard(card, updated);
+      btn.disabled = false;
+      toast(updated.available
+        ? `${updated.name} online · ${formatLatency(updated.latency_ms)}`
+        : `${updated.name} offline${updated.error ? ` (${updated.error})` : ""}`,
+        !updated.available);
     } catch (err) {
       toast(err.message || "Teste falhou", true);
       btn.disabled = false;
@@ -2780,8 +3040,42 @@ async function loadSources({ recheck = false } = {}) {
       list.innerHTML = `<div class="empty-state"><strong>Nenhuma fonte</strong>Nenhum site foi encontrado.</div>`;
       return;
     }
-    for (const s of items) {
-      list.appendChild(renderSourceCard(s));
+
+    // Summary bar
+    const enabledItems = items.filter(s => s.enabled);
+    const onlineCount = enabledItems.filter(s => s.available).length;
+    const offlineCount = enabledItems.filter(s => !s.available && s.status !== "unknown").length;
+    const disabledCount = items.filter(s => !s.enabled).length;
+    const summary = document.createElement("div");
+    summary.className = "sources-summary";
+    summary.innerHTML = `
+      <div class="sources-summary-stats">
+        <span class="ssumm-stat ssumm-online">
+          <span class="ssumm-dot"></span>${onlineCount} online
+        </span>
+        ${offlineCount > 0 ? `<span class="ssumm-stat ssumm-offline"><span class="ssumm-dot"></span>${offlineCount} offline</span>` : ""}
+        ${disabledCount > 0 ? `<span class="ssumm-stat ssumm-disabled"><span class="ssumm-dot"></span>${disabledCount} desativada${disabledCount !== 1 ? "s" : ""}</span>` : ""}
+      </div>
+      <p class="sources-summary-hint">Ative as fontes que deseja usar. Fontes desativadas não aparecem nas buscas.</p>
+    `;
+    list.appendChild(summary);
+
+    // Group: enabled online, enabled offline/unknown, disabled
+    const groups = [
+      { label: "Online", items: items.filter(s => s.enabled && s.available), cls: "group-online" },
+      { label: "Com problema", items: items.filter(s => s.enabled && !s.available && s.status !== "unknown"), cls: "group-offline" },
+      { label: "Não verificadas", items: items.filter(s => s.enabled && s.status === "unknown" && !s.available), cls: "group-unknown" },
+      { label: "Desativadas", items: items.filter(s => !s.enabled), cls: "group-disabled" },
+    ].filter(g => g.items.length > 0);
+
+    for (const group of groups) {
+      const section = document.createElement("div");
+      section.className = `sources-group ${group.cls}`;
+      section.innerHTML = `<h4 class="sources-group-label">${group.label} <span class="sources-group-count">${group.items.length}</span></h4>`;
+      for (const s of group.items) {
+        section.appendChild(renderSourceCard(s));
+      }
+      list.appendChild(section);
     }
   } catch (e) {
     list.innerHTML = `<div class="empty-state"><strong>Erro</strong>${escapeHtml(e.message)}</div>`;

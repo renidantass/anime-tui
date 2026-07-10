@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import requests
+import re
 
 from app.application.title_utils import (  # noqa: F401 — re-export
     audio_variant_label,
@@ -16,10 +16,12 @@ from app.application.title_utils import (  # noqa: F401 — re-export
     title_has_variant_noise,
 )
 
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-}
+from app.infrastructure.sources._base import HEADERS, validate_response  # noqa: F401 — re-export
 
 
-def validate_response(response: requests.Response) -> bool:
-    return 200 <= response.status_code < 300
+def matches_search_tokens(query: str, raw_title: str, link: str) -> bool:
+    tokens = [t for t in re.split(r"\s+", query.lower()) if len(t) > 1]
+    if not tokens:
+        return True
+    blob = f"{raw_title} {link}".lower()
+    return all(t in blob for t in tokens)

@@ -22,6 +22,7 @@ from app.infrastructure.sources._utils import (
     HEADERS,
     extract_episode_number,
     is_unknown_episode_number,
+    matches_search_tokens,
     normalize_watch_titles,
     strip_title_variants,
     validate_response,
@@ -396,10 +397,9 @@ class AnimeYabu(AnimeSource):
         session = requests.Session()
         session.headers.update(HEADERS)
         try:
-            response = session.get(self.base_url + "/", timeout=20)
-            if not validate_response(response):
+            soup = self._fetch_soup(self.base_url + "/", session=session)
+            if not soup:
                 return []
-            soup = BeautifulSoup(response.text, self.default_analyzer)
 
             seen_series: set[str] = set()
             seen_links: set[str] = set()
@@ -462,21 +462,16 @@ class AnimeYabu(AnimeSource):
             session.close()
 
     def search_by(self, name: str) -> list[Anime]:
-        retrieved: list[Anime] = []
         q = (name or "").strip()
         if not q:
             return []
-        response = requests.get(
-            f"{self.base_url}/?s={quote(q, safe='')}",
-            headers=HEADERS,
-            timeout=20,
-        )
-        if not validate_response(response):
-            return []
-        soup = BeautifulSoup(response.text, self.default_analyzer)
 
-        tokens = [t for t in re.split(r"\s+", q.lower()) if len(t) > 1]
+        soup = self._fetch_soup(f"{self.base_url}/?s={quote(q, safe='')}")
+        if not soup:
+            return []
+
         seen: set[str] = set()
+        retrieved: list[Anime] = []
 
         anchors = soup.select(
             ".FsssItem a[href*='/animes/'], .search a[href*='/animes/']"
@@ -499,8 +494,7 @@ class AnimeYabu(AnimeSource):
             )[0].strip()
             if not title or len(title) < 2:
                 continue
-            blob = f"{title} {href}".lower()
-            if tokens and not any(t in blob for t in tokens):
+            if not matches_search_tokens(q, title, href):
                 continue
             seen.add(href)
             parent = a.find_parent(["div", "article", "li"])
@@ -519,10 +513,10 @@ class AnimeYabu(AnimeSource):
     def get_anime_details(self, link: str) -> Anime:
         if not is_safe_url(link, allow_http=True, resolve_dns=False):
             return Anime(title="", rating="", link=link)
-        response = requests.get(link, headers=HEADERS, timeout=20)
-        if not validate_response(response):
+
+        soup = self._fetch_soup(link)
+        if not soup:
             return Anime(title="", rating="", link=link)
-        soup = BeautifulSoup(response.text, self.default_analyzer)
 
         h1 = soup.find("h1")
         title = h1.get_text(strip=True) if h1 else link.rstrip("/").split("/")[-1]

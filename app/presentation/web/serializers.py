@@ -123,6 +123,7 @@ def source_entry(e: SourceEntry, enabled: bool) -> dict:
         "checks_total": checks_total,
         "checks_ok": checks_ok,
         "base_url": getattr(e, "base_url", "") or "",
+        "recent_checks": [bool(v) for v in (getattr(e, "_recent", None) or [])],
     }
 
 
