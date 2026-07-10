@@ -10,6 +10,7 @@ from textual.widgets import Footer, Header, ListItem, ListView, LoadingIndicator
 
 from app.application import EpisodeEntry, SourceInfo
 from app.application.anime_service import AnimeService
+from app.infrastructure.player import open_video
 from app.presentation.tui.screens.search_screen import SearchScreen
 from app.presentation.tui.screens.source_manager_screen import SourceManagerScreen
 from app.presentation.tui.screens.source_select_screen import SourceSelectScreen

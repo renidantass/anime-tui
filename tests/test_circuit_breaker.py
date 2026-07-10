@@ -1,7 +1,5 @@
 import time
 
-import pytest
-
 from app.infrastructure.circuit_breaker import CircuitBreaker
 
 

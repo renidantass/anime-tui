@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 import logging
 import threading
-import time
 from urllib.parse import urlparse
 
 from app.application._cache import TTLCache

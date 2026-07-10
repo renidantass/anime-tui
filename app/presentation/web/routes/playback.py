@@ -187,7 +187,8 @@ def stream_segment(
     session = state.sessions.get(token)
     if not session:
         raise HTTPException(404, "Sessão expirada")
-    if not state.is_safe_url(u, allow_http=True, resolve_dns=True):
+    url = session.url
+    if not state.is_safe_url(url, allow_http=True, resolve_dns=True):
         raise HTTPException(403, "URL de segmento bloqueada")
 
     headers = dict(session.headers)
@@ -195,11 +196,11 @@ def stream_segment(
     if range_header:
         headers["Range"] = range_header
 
-    upstream = _fetch_upstream(u, headers)
+    upstream = _fetch_upstream(url, headers)
 
     content_type = upstream.headers.get("Content-Type", "application/octet-stream")
-    if _is_m3u8(content_type, u):
-        return _handle_m3u8(upstream, u, token, state)
+    if _is_m3u8(content_type, url):
+        return _handle_m3u8(upstream, url, token, state)
 
     headers_out = _build_stream_headers(upstream)
     status = _stream_status(upstream)

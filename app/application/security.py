@@ -70,9 +70,7 @@ def is_safe_url(url: str, *, allow_http: bool = True) -> bool:
         return False
     if _host_blocked(host):
         return False
-    if parsed.username or parsed.password:
-        return False
-    return True
+    return not (parsed.username or parsed.password)
 
 
 # ── Blogger detection (regex pura) ──────────────────────────────────────────

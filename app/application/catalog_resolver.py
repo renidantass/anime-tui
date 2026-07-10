@@ -86,7 +86,6 @@ class CatalogResolver:
         if not media_list:
             return []
 
-        now = time.monotonic()
         by_id: dict[int, AnimeEntry] = {}
         to_fetch: list[AniListSearchMedia] = []
         for media in media_list:

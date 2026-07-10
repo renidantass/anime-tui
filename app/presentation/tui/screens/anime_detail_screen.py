@@ -7,6 +7,7 @@ from textual.screen import Screen
 from textual.widgets import Footer, Header, Static, Tree
 
 from app.application.anime_service import AnimeService
+from app.infrastructure.player import open_video
 from app.presentation.tui.utils.image_cache import get_image
 from app.presentation.tui.view_models import AnimeVM, EpisodeVM
 
