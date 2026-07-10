@@ -14,7 +14,7 @@ if (-not (Test-Path $icon)) {
 }
 
 uv run pyinstaller `
-    --noconfirm --clean --onefile `
+    --noconfirm --clean --onefile --windowed `
     --name anishelf `
     --icon "$icon" `
     --add-data "app/presentation/web/static:app/presentation/web/static" `

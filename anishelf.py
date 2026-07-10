@@ -24,7 +24,8 @@ from bootstrap import web_lifespan
 
 HOST = "127.0.0.1"
 PORT = 8765
-URL = f"http://{HOST}:{PORT}"
+LOCALNAME = "ahi.shelf"
+URL = f"http://{LOCALNAME}:{PORT}"
 
 logger = logging.getLogger(__name__)
 

@@ -42,7 +42,7 @@ jobs:
       - name: Build binary
         run: |
           uv run pyinstaller `
-            --noconfirm --clean --onefile `
+            --noconfirm --clean --onefile --windowed `
             --name anishelf `
             --add-data "app/presentation/web/static:app/presentation/web/static" `
             --hidden-import=textual `
