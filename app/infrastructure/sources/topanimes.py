@@ -11,7 +11,7 @@ from bs4 import BeautifulSoup
 from app.domain import Anime, Episode, PlayContext, Season
 from app.infrastructure.security import is_safe_url, quote_path_segment
 from app.infrastructure.sources._base import AnimeSource
-from app.infrastructure.sources._utils import HEADERS, validate_response, get_episode_number
+from app.infrastructure.sources._utils import HEADERS, get_episode_number, validate_response
 from app.infrastructure.stream_quality import (
     height_from_url,
     media_url_rank,
@@ -81,9 +81,7 @@ class Topanimes(AnimeSource):
 
         for src in candidates:
             try:
-                resolved = self._resolve_player_src(
-                    src, session=session, referer=episode_link
-                )
+                resolved = self._resolve_player_src(src, session=session, referer=episode_link)
             except Exception as e:
                 logger.debug("Topanimes: falha em %s: %s", src[:80], e)
                 continue
@@ -98,9 +96,7 @@ class Topanimes(AnimeSource):
                 continue
 
             probe_ref = self._probe_referer_for(src, resolved, episode_link)
-            playable = self._stream_looks_playable(
-                resolved, session=session, referer=probe_ref
-            )
+            playable = self._stream_looks_playable(resolved, session=session, referer=probe_ref)
             if not playable:
                 logger.debug("Topanimes: stream duvidoso %s…", resolved[:60])
                 continue
@@ -215,8 +211,8 @@ class Topanimes(AnimeSource):
                 if b"ftyp" in chunk:
                     return True
                 # alguns CDNs devolvem 200 sem range; ainda pode ser mp4
-                return resp.status_code in (200, 206) and len(chunk) > 0 and not chunk.startswith(
-                    b"<"
+                return (
+                    resp.status_code in (200, 206) and len(chunk) > 0 and not chunk.startswith(b"<")
                 )
             finally:
                 resp.close()
@@ -271,7 +267,9 @@ class Topanimes(AnimeSource):
         seen: set[str] = set()
 
         # players dooplay (ordem das abas OdaCDN, Ruplay, …)
-        roots = soup.select(".dooplay_player iframe, #dooplay_player_content iframe, iframe.metaframe")
+        roots = soup.select(
+            ".dooplay_player iframe, #dooplay_player_content iframe, iframe.metaframe"
+        )
         if not roots:
             roots = soup.find_all("iframe")
 
@@ -404,45 +402,47 @@ class Topanimes(AnimeSource):
             return []
 
         retrieved: list[Episode] = []
-        for article in soup.find_all('article', class_='episodes'):
-            poster = article.find('div', 'poster')
+        for article in soup.find_all("article", class_="episodes"):
+            poster = article.find("div", "poster")
             if not poster:
                 continue
 
-            link_el = poster.find('a', href=True)
+            link_el = poster.find("a", href=True)
             if not link_el:
                 continue
-            episode_link = link_el['href']
+            episode_link = link_el["href"]
 
-            picture = poster.find('picture')
-            image = ''
+            picture = poster.find("picture")
+            image = ""
             if picture:
-                img = picture.find('img')
+                img = picture.find("img")
                 if img:
-                    image = img.get('src', '')
+                    image = img.get("src", "")
 
-            data_div = article.find('div', 'data')
-            title_text = ''
-            episode_number = '?'
+            data_div = article.find("div", "data")
+            title_text = ""
+            episode_number = "?"
             if data_div:
-                strong = data_div.find('strong')
+                strong = data_div.find("strong")
                 if strong:
                     title_text = strong.get_text().strip()
-                h3 = data_div.find('h3')
-                ep_text = h3.get_text().strip() if h3 else ''
+                h3 = data_div.find("h3")
+                ep_text = h3.get_text().strip() if h3 else ""
                 if ep_text:
                     title_text = f"{title_text} - {ep_text}".strip(" -")
                 episode_number = get_episode_number(ep_text, title_text, episode_link)
             if episode_number in {"?", "0"}:
                 episode_number = get_episode_number(title_text, episode_link)
 
-            retrieved.append(Episode(
-                number=episode_number,
-                title=title_text,
-                link=episode_link,
-                video_src='',
-                image=image,
-            ))
+            retrieved.append(
+                Episode(
+                    number=episode_number,
+                    title=title_text,
+                    link=episode_link,
+                    video_src="",
+                    image=image,
+                )
+            )
 
         return retrieved
 
@@ -452,64 +452,66 @@ class Topanimes(AnimeSource):
             return []
 
         retrieved: list[Anime] = []
-        for article in soup.find_all('article'):
-            div_img = article.find('div', class_='image')
+        for article in soup.find_all("article"):
+            div_img = article.find("div", class_="image")
             if not div_img:
                 continue
 
-            link_el = div_img.find('a', href=True)
+            link_el = div_img.find("a", href=True)
             if not link_el:
                 continue
-            link = link_el['href']
+            link = link_el["href"]
 
-            img = div_img.find('img')
-            image = img.get('src', '') if img else ''
-            raw_title = img.get('alt', '') if img else ''
+            img = div_img.find("img")
+            image = img.get("src", "") if img else ""
+            raw_title = img.get("alt", "") if img else ""
 
-            retrieved.append(Anime(title=raw_title, rating='', link=link, image=image))
+            retrieved.append(Anime(title=raw_title, rating="", link=link, image=image))
 
         return retrieved
 
     def get_anime_details(self, link: str) -> Anime:
         soup = self._fetch_soup(link)
         if not soup:
-            return Anime(title='', rating='', link=link)
+            return Anime(title="", rating="", link=link)
 
         title = self._extract_title(soup, link)
 
-        img = soup.find('img', class_=lambda c: c and 'poster' in c.lower() if c else False)
+        img = soup.find("img", class_=lambda c: c and "poster" in c.lower() if c else False)
         if not img:
-            img = soup.find('img', src=True)
-        image = ''
+            img = soup.find("img", src=True)
+        image = ""
         if img:
-            image = img.get('src', '')
+            image = img.get("src", "")
 
         seasons: list[Season] = []
-        for ul in soup.find_all('ul', class_='episodios'):
+        for ul in soup.find_all("ul", class_="episodios"):
             season_num = len(seasons) + 1
             episodes: list[Episode] = []
-            for li in ul.find_all('li'):
-                ep_title_div = li.find(class_='episodiotitle')
+            for li in ul.find_all("li"):
+                ep_title_div = li.find(class_="episodiotitle")
                 if not ep_title_div:
                     continue
-                a = ep_title_div.find('a', href=True)
+                a = ep_title_div.find("a", href=True)
                 if not a:
                     continue
                 ep_text = a.get_text().strip()
-                href = a['href']
+                href = a["href"]
                 ep_num = get_episode_number(ep_text, href)
-                episodes.append(Episode(
-                    number=ep_num,
-                    title=ep_text,
-                    link=href,
-                    video_src='',
-                ))
+                episodes.append(
+                    Episode(
+                        number=ep_num,
+                        title=ep_text,
+                        link=href,
+                        video_src="",
+                    )
+                )
             if episodes:
                 seasons.append(Season(number=season_num, episodes=episodes))
 
         return Anime(
             title=title,
-            rating='',
+            rating="",
             link=link,
             image=image,
             seasons=seasons if seasons else None,

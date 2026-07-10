@@ -4,12 +4,11 @@ from __future__ import annotations
 
 import logging
 import time
-from concurrent.futures import wait
-from concurrent.futures import as_completed
+from concurrent.futures import as_completed, wait
 
 from app.application._cache import TTLCache
 from app.application._executor import get_executor
-from app.application.dtos import AnimeEntry, AniListSearchMedia, SourceEntry, SourceInfo
+from app.application.dtos import AniListSearchMedia, AnimeEntry, SourceEntry, SourceInfo
 from app.application.interfaces import ISourceDiscovery
 from app.application.title_matcher import best_title_score, normalize_text
 from app.application.title_utils import detect_audio_variant, prefer_display_title
@@ -43,23 +42,44 @@ class CatalogResolver:
             if not titles:
                 continue
             mid = int(raw.get("id") or 0)
-            media_list.append(AniListSearchMedia(
-                id=mid, title_romaji=titles[0],
-                title_english=titles[1] if len(titles) > 1 else "",
-                title_native=titles[2] if len(titles) > 2 else "",
-                image=(raw.get("image") or "").strip(), score=raw.get("score"),
-                season=(raw.get("season") or ""), year=raw.get("year"),
-                format=(raw.get("format") or ""), status=(raw.get("status") or ""),
-                episodes=raw.get("episodes"), description=(raw.get("description") or ""),
-                studios=list(raw.get("studios") or []), genres=list(raw.get("genres") or []),
-                banner=(raw.get("banner") or ""),
-            ))
+            media_list.append(
+                AniListSearchMedia(
+                    id=mid,
+                    title_romaji=titles[0],
+                    title_english=titles[1] if len(titles) > 1 else "",
+                    title_native=titles[2] if len(titles) > 2 else "",
+                    image=(raw.get("image") or "").strip(),
+                    score=raw.get("score"),
+                    season=(raw.get("season") or ""),
+                    year=raw.get("year"),
+                    format=(raw.get("format") or ""),
+                    status=(raw.get("status") or ""),
+                    episodes=raw.get("episodes"),
+                    description=(raw.get("description") or ""),
+                    studios=list(raw.get("studios") or []),
+                    genres=list(raw.get("genres") or []),
+                    banner=(raw.get("banner") or ""),
+                )
+            )
             meta_by_id[mid] = {
-                k: raw[k] for k in (
-                    "season_line", "season_label", "year", "format_label", "status_label",
-                    "status", "score", "episodes", "studios", "genres_label", "banner",
-                    "description", "format", "season",
-                ) if k in raw and raw[k] not in (None, "", [])
+                k: raw[k]
+                for k in (
+                    "season_line",
+                    "season_label",
+                    "year",
+                    "format_label",
+                    "status_label",
+                    "status",
+                    "score",
+                    "episodes",
+                    "studios",
+                    "genres_label",
+                    "banner",
+                    "description",
+                    "format",
+                    "season",
+                )
+                if k in raw and raw[k] not in (None, "", [])
             }
             if raw.get("score") is not None:
                 meta_by_id[mid]["score"] = raw.get("score")
@@ -93,7 +113,9 @@ class CatalogResolver:
 
             acc: dict[int, dict] = {
                 m.id: {
-                    "sources": [], "title": m.primary_title, "image": m.image,
+                    "sources": [],
+                    "title": m.primary_title,
+                    "image": m.image,
                     "rating": f"{m.score / 10:.1f}" if m.score is not None else "",
                     "titles": m.search_titles(),
                     "keys": {normalize_text(t) for t in m.search_titles() if t},
@@ -105,7 +127,11 @@ class CatalogResolver:
             deadline = time.monotonic() + max(4.0, timeout)
             while pending and time.monotonic() < deadline:
                 remaining = deadline - time.monotonic()
-                done, _ = wait(list(pending.keys()), timeout=remaining, return_when="FIRST_COMPLETED" if True else None)
+                done, _ = wait(
+                    list(pending.keys()),
+                    timeout=remaining,
+                    return_when="FIRST_COMPLETED" if True else None,
+                )
                 for future in as_completed(list(pending.keys()), timeout=remaining):
                     if future not in pending:
                         continue
@@ -134,19 +160,27 @@ class CatalogResolver:
                     if not best_by_variant:
                         continue
                     for best_sim, best_anime, best_src in best_by_variant.values():
-                        variant = best_src.variant or detect_audio_variant(best_anime.title, best_src.link)
+                        variant = best_src.variant or detect_audio_variant(
+                            best_anime.title, best_src.link
+                        )
                         best_src.variant = variant
                         best_src.title = best_anime.title or best_src.title
-                        if any(s.name == best_src.name and (s.variant or "original") == variant
-                               for s in bucket["sources"]):
+                        if any(
+                            s.name == best_src.name and (s.variant or "original") == variant
+                            for s in bucket["sources"]
+                        ):
                             continue
-                        if any(s.link and best_src.link and s.link == best_src.link
-                               for s in bucket["sources"]):
+                        if any(
+                            s.link and best_src.link and s.link == best_src.link
+                            for s in bucket["sources"]
+                        ):
                             continue
                         bucket["sources"].append(best_src)
                         if best_sim >= bucket["best_sim"]:
                             bucket["best_sim"] = best_sim
-                            clean = prefer_display_title(bucket.get("title") or "", best_anime.title or "")
+                            clean = prefer_display_title(
+                                bucket.get("title") or "", best_anime.title or ""
+                            )
                             if clean:
                                 bucket["title"] = clean
                             if best_anime.image:
@@ -162,9 +196,12 @@ class CatalogResolver:
                 result: AnimeEntry | None = None
                 if bucket["sources"]:
                     result = AnimeEntry(
-                        title=bucket["title"], rating=bucket["rating"],
-                        image=bucket["image"] or media.image, sources=list(bucket["sources"]),
-                        anilist_id=media.id or None, meta=meta_by_id.get(media.id) or {},
+                        title=bucket["title"],
+                        rating=bucket["rating"],
+                        image=bucket["image"] or media.image,
+                        sources=list(bucket["sources"]),
+                        anilist_id=media.id or None,
+                        meta=meta_by_id.get(media.id) or {},
                     )
                     by_id[media.id] = result
                 self._cache.set(_cache_key(media, sources_sig), result)
@@ -181,7 +218,9 @@ def _cache_key(media: AniListSearchMedia, sources_sig: str) -> str:
     return f"{sources_sig}::{normalize_text(titles)}"
 
 
-def _search_one_source(sd: ISourceDiscovery, entry: SourceEntry, query: str) -> list[tuple[Anime, SourceInfo]]:
+def _search_one_source(
+    sd: ISourceDiscovery, entry: SourceEntry, query: str
+) -> list[tuple[Anime, SourceInfo]]:
     try:
         reader = sd.get_reader(entry.identifier)
         if not reader:
@@ -192,8 +231,17 @@ def _search_one_source(sd: ISourceDiscovery, entry: SourceEntry, query: str) -> 
         return []
     out: list[tuple[Anime, SourceInfo]] = []
     for anime in animes:
-        out.append((anime, SourceInfo(
-            name=entry.name, video_src="", link=anime.link, color=entry.color,
-            variant=detect_audio_variant(anime.title, anime.link), title=anime.title or "",
-        )))
+        out.append(
+            (
+                anime,
+                SourceInfo(
+                    name=entry.name,
+                    video_src="",
+                    link=anime.link,
+                    color=entry.color,
+                    variant=detect_audio_variant(anime.title, anime.link),
+                    title=anime.title or "",
+                ),
+            )
+        )
     return out

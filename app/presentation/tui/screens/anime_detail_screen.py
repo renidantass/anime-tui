@@ -1,10 +1,10 @@
 import asyncio
-from typing import Callable
+from collections.abc import Callable
 
 from textual.app import ComposeResult
 from textual.containers import Horizontal
 from textual.screen import Screen
-from textual.widgets import Header, Footer, Static, Tree
+from textual.widgets import Footer, Header, Static, Tree
 
 from app.application.anime_service import AnimeService
 from app.presentation.tui.utils.image_cache import get_image
@@ -71,9 +71,7 @@ class AnimeDetailScreen(Screen):
             for season in self._anime_vm.seasons:
                 season_node = tree.root.add(f"[bold]Temporada {season.number}[/]")
                 for ep_vm in season.episodes:
-                    leaf = season_node.add_leaf(
-                        f"[bold]{ep_vm.number}[/] - {ep_vm.title}"
-                    )
+                    leaf = season_node.add_leaf(f"[bold]{ep_vm.number}[/] - {ep_vm.title}")
                     leaf.data = ep_vm
             tree.root.expand_all()
         else:
@@ -93,9 +91,7 @@ class AnimeDetailScreen(Screen):
         try:
             loop = getattr(self.app, "_loop", None)
             if loop is not None and loop.is_running():
-                loop.call_soon_threadsafe(
-                    lambda: self.notify(msg, severity=severity, timeout=2)
-                )
+                loop.call_soon_threadsafe(lambda: self.notify(msg, severity=severity, timeout=2))
             else:
                 self.notify(msg, severity=severity, timeout=2)
         except Exception:

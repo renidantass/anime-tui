@@ -1,6 +1,9 @@
-"""Rotas de assistir depois (watch later)."""
+"""Rotas de favoritos (watch later)."""
 
 from __future__ import annotations
+
+import asyncio
+from urllib.parse import unquote
 
 from fastapi import APIRouter
 
@@ -12,14 +15,16 @@ router = APIRouter(prefix="/api/watch-later", tags=["watch-later"])
 
 
 @router.get("")
-def get_watch_later(state: AppState):
+async def get_watch_later(state: AppState):
     ws = state.watch_later
-    return {"items": [ser.watch_later_entry(e) for e in ws.get_all()]}
+    entries = await asyncio.to_thread(ws.get_all)
+    return {"items": [ser.watch_later_entry(e) for e in entries]}
 
 
 @router.post("")
-def add_watch_later(state: AppState, body: WatchLaterAddRequest):
-    entry = state.watch_later.add_entry(
+async def add_watch_later(state: AppState, body: WatchLaterAddRequest):
+    entry = await asyncio.to_thread(
+        state.watch_later.add_entry,
         anime_title=body.anime_title,
         anime_image=body.anime_image,
         source_name=body.source_name,
@@ -30,14 +35,12 @@ def add_watch_later(state: AppState, body: WatchLaterAddRequest):
 
 
 @router.delete("")
-def clear_watch_later(state: AppState):
-    state.watch_later.clear_all()
+async def clear_watch_later(state: AppState):
+    await asyncio.to_thread(state.watch_later.clear_all)
     return {"ok": True}
 
 
 @router.delete("/{title}")
-def remove_watch_later(state: AppState, title: str):
-    from urllib.parse import unquote
-
-    state.watch_later.remove_entry(unquote(title))
+async def remove_watch_later(state: AppState, title: str):
+    await asyncio.to_thread(state.watch_later.remove_entry, unquote(title))
     return {"ok": True}

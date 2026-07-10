@@ -47,7 +47,9 @@ def _stream_chunks(upstream: requests.Response) -> Iterator[bytes]:
         upstream.close()
 
 
-def _build_stream_headers(upstream: requests.Response, *, extra: dict | None = None) -> dict[str, str]:
+def _build_stream_headers(
+    upstream: requests.Response, *, extra: dict | None = None
+) -> dict[str, str]:
     headers_out = {"Access-Control-Allow-Origin": "*"}
     if extra:
         headers_out.update(extra)
@@ -94,6 +96,7 @@ def _is_m3u8(content_type: str, url: str) -> bool:
 
 @router.post("/play")
 def play(state: AppState, body: WebPlayRequest):
+    """Resolve e inicia playback de um episódio, retornando token de stream."""
     raw_candidates = [
         PlayCandidate(name=c.name, link=c.link, color=c.color)
         for c in body.candidates
@@ -140,6 +143,7 @@ def play(state: AppState, body: WebPlayRequest):
 
 @router.get("/stream/{token}")
 def stream_proxy(token: str, state: AppState, request: Request):
+    """Proxy de stream — redireciona ou faz bridge do conteúdo de vídeo."""
     session = state.sessions.get(token)
     if not session:
         raise HTTPException(404, "Sessão de stream expirada")
@@ -178,8 +182,8 @@ def stream_segment(
     token: str,
     state: AppState,
     request: Request,
-    u: str = Query(..., min_length=1),
 ):
+    """Proxy de segmento HLS — busca segmento individual com headers de referer."""
     session = state.sessions.get(token)
     if not session:
         raise HTTPException(404, "Sessão expirada")
@@ -219,6 +223,7 @@ def skip_times_endpoint(
     ),
     types: str = Query("op", description="Tipos separados por vírgula: op,ed,recap…"),
 ):
+    """Timestamps de abertura/encerramento via AniSkip."""
     st = state.skip_times
     type_list = [t.strip() for t in (types or "op").split(",") if t.strip()]
     return st.get_skip_times(
@@ -231,6 +236,7 @@ def skip_times_endpoint(
 
 @router.get("/image")
 def image_proxy(state: AppState, url: str = Query(..., min_length=1)):
+    """Proxy de imagem — busca, valida e serve imagens com cache."""
     try:
         data, media_type = state.fetch_proxied_image(url)
     except ValueError as e:

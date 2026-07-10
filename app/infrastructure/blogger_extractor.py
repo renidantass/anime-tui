@@ -161,7 +161,9 @@ def _parse_streams(raw: str) -> list[BloggerStream]:
     return streams
 
 
-def extract_streams(url_or_token: str, *, session: requests.Session | None = None) -> list[BloggerStream]:
+def extract_streams(
+    url_or_token: str, *, session: requests.Session | None = None
+) -> list[BloggerStream]:
     """Resolve um link ``video.g?token=…`` (ou o token puro) em streams diretos."""
     token = extract_token(url_or_token)
     if not token and url_or_token and re.fullmatch(r"[A-Za-z0-9_\-]{16,512}", url_or_token.strip()):

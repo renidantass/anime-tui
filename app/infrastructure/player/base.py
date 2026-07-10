@@ -6,9 +6,9 @@ import logging
 import subprocess
 import threading
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
 
 from app.infrastructure.security import safe_player_url
 from app.infrastructure.sources._utils import HEADERS
@@ -78,9 +78,7 @@ class VideoBackend(ABC):
         if request.stream:
             safe = safe_player_url(request.target)
             if not safe:
-                logger.warning(
-                    "Player recusou URL insegura: %s…", request.target[:80]
-                )
+                logger.warning("Player recusou URL insegura: %s…", request.target[:80])
                 return None
             return safe
 

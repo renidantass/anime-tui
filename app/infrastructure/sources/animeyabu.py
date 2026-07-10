@@ -13,7 +13,6 @@ import time
 from urllib.parse import quote, urljoin
 
 import requests
-from bs4 import BeautifulSoup
 
 from app.domain import Anime, Episode, PlayContext, Season
 from app.infrastructure.security import is_safe_url
@@ -39,11 +38,6 @@ _YABU_EP_IN_TITLE = re.compile(
     re.I,
 )
 _VIDEO_ID_RE = re.compile(r"/videos/(\d+)", re.I)
-
-_ADS_URL = "https://ads.animeyabu.net"
-_OUTBRAIN_URL = "https://widgets.outbrain.com/outbrain.js"
-
-# cache de outbrain.js (corpo grande; reutiliza por alguns minutos)
 _ob_lock = threading.Lock()
 _ob_body: str = ""
 _ob_expires: float = 0.0
@@ -57,6 +51,8 @@ class AnimeYabu(AnimeSource):
     color = "#e74c3c"
     has_search = True
     has_details = True
+    ads_url: str = "https://ads.animeyabu.net"
+    outbrain_url: str = "https://widgets.outbrain.com/outbrain.js"
 
     def _abs(self, href: str) -> str:
         return urljoin(self.base_url + "/", href or "")
@@ -193,12 +189,12 @@ class AnimeYabu(AnimeSource):
             if _ob_body and now < _ob_expires:
                 return _ob_body
         try:
-            r = session.get(_OUTBRAIN_URL, timeout=25)
+            r = session.get(self.outbrain_url, timeout=25)
             r.raise_for_status()
             body = r.text or ""
         except requests.RequestException as e:
             logger.warning("AnimeYabu: falha outbrain.js: %s", e)
-            body = "x"  # tenta mesmo assim (pode vir BLOQUEADO)
+            body = "x"
         with _ob_lock:
             _ob_body = body
             _ob_expires = time.monotonic() + _OB_TTL
@@ -226,7 +222,7 @@ class AnimeYabu(AnimeSource):
             r1 = None
             for attempt in range(3):
                 r1 = session.post(
-                    _ADS_URL,
+                    self.ads_url,
                     data={
                         "category": "client",
                         "type": "premium",
@@ -263,7 +259,7 @@ class AnimeYabu(AnimeSource):
             r2 = None
             for attempt in range(3):
                 r2 = session.get(
-                    _ADS_URL,
+                    self.ads_url,
                     params={"token": token, "url": raw_mp4},
                     headers={
                         **HEADERS,
@@ -323,9 +319,7 @@ class AnimeYabu(AnimeSource):
                 if r.status_code not in (200, 206):
                     return False
                 chunk = next(r.iter_content(64), b"")
-                return bool(chunk) and (
-                    b"ftyp" in chunk[:64] or chunk[:4] == b"\x00\x00\x00"
-                )
+                return bool(chunk) and (b"ftyp" in chunk[:64] or chunk[:4] == b"\x00\x00\x00")
             finally:
                 r.close()
         except requests.RequestException:
@@ -356,25 +350,17 @@ class AnimeYabu(AnimeSource):
             for raw in raw_urls:
                 if not is_safe_url(raw, allow_http=True, resolve_dns=False):
                     continue
-                signed = self._sign_video_url(
-                    raw, page_url=episode_link, session=session
-                )
+                signed = self._sign_video_url(raw, page_url=episode_link, session=session)
                 if not signed:
                     continue
                 if not is_safe_url(signed, allow_http=True, resolve_dns=False):
                     continue
-                if not self._probe_mp4(
-                    signed, referer=episode_link, session=session
-                ):
+                if not self._probe_mp4(signed, referer=episode_link, session=session):
                     logger.debug("AnimeYabu: signed URL não playable %s…", signed[:80])
                     continue
                 logger.info(
                     "AnimeYabu: stream assinado ok (%s) %s…",
-                    "fful"
-                    if "/fful/" in raw
-                    else "f333"
-                    if "/f333/" in raw
-                    else "other",
+                    "fful" if "/fful/" in raw else "f333" if "/f333/" in raw else "other",
                     signed[:90],
                 )
                 return PlayContext(
@@ -414,14 +400,11 @@ class AnimeYabu(AnimeSource):
                 seen_links.add(link)
 
                 name_el = item.select_one(
-                    ".ultimosEpisodiosHomeItemInfosNome h1, "
-                    ".ultimosEpisodiosHomeItemInfosNome"
+                    ".ultimosEpisodiosHomeItemInfosNome h1, .ultimosEpisodiosHomeItemInfosNome"
                 )
                 num_el = item.select_one(".ultimosEpisodiosHomeItemInfosNum")
                 raw_title = (
-                    (name_el.get_text(strip=True) if name_el else "")
-                    or a.get("title")
-                    or ""
+                    (name_el.get_text(strip=True) if name_el else "") or a.get("title") or ""
                 )
                 ep_text = num_el.get_text(strip=True) if num_el else ""
                 number = extract_episode_number(ep_text, raw_title, link)
@@ -473,9 +456,7 @@ class AnimeYabu(AnimeSource):
         seen: set[str] = set()
         retrieved: list[Anime] = []
 
-        anchors = soup.select(
-            ".FsssItem a[href*='/animes/'], .search a[href*='/animes/']"
-        )
+        anchors = soup.select(".FsssItem a[href*='/animes/'], .search a[href*='/animes/']")
         if not anchors:
             anchors = soup.select("a[href*='/animes/']")
 

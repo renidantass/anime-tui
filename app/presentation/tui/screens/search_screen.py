@@ -1,20 +1,20 @@
 import asyncio
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
-from typing import Callable
 
 from rich.table import Table
 from rich.text import Text
 from textual.app import ComposeResult
 from textual.screen import Screen
-from textual.widgets import Header, Footer, ListView, ListItem, Input, Static, LoadingIndicator
+from textual.widgets import Footer, Header, Input, ListItem, ListView, LoadingIndicator, Static
 
 from app.application import AnimeEntry, SourceInfo
 from app.application.anime_service import AnimeService
 from app.presentation.tui.presenters.anime_presenter import present_anime
 from app.presentation.tui.screens.anime_detail_screen import AnimeDetailScreen
 from app.presentation.tui.screens.source_select_screen import SourceSelectScreen
-from app.presentation.tui.utils.image_cache import get_image
 from app.presentation.tui.utils.badge import badge_tag
+from app.presentation.tui.utils.image_cache import get_image
 
 _SEARCH_IMAGE_EXECUTOR = ThreadPoolExecutor(max_workers=8)
 
@@ -81,9 +81,7 @@ class SearchScreen(Screen):
         list_view = self.query_one("#results-list", ListView)
         list_view.clear()
         if not self._search_history:
-            list_view.append(
-                ListItem(Static("[dim]Digite para buscar...[/]"))
-            )
+            list_view.append(ListItem(Static("[dim]Digite para buscar...[/]")))
             return
         for term in reversed(self._search_history):
             item = ListItem(Static(f"\u23ce {term}"))
@@ -102,7 +100,10 @@ class SearchScreen(Screen):
         self._search_task = asyncio.create_task(self._search(query))
 
     def _build_item(self, entry: AnimeEntry) -> Static:
-        ansi = get_image(entry.image, max_width=35) if entry.image else None
+        try:
+            ansi = get_image(entry.image, max_width=35) if entry.image else None
+        except Exception:
+            ansi = None
 
         table = Table.grid(padding=(0, 2))
         table.add_column(width=ansi.width if ansi else 1)
@@ -133,9 +134,7 @@ class SearchScreen(Screen):
             entries = await asyncio.to_thread(self._service.search_by, name.strip())
             list_view.clear()
             if not entries:
-                list_view.append(
-                    ListItem(Static("[yellow]Nenhum resultado encontrado[/]"))
-                )
+                list_view.append(ListItem(Static("[yellow]Nenhum resultado encontrado[/]")))
                 self.query_one("#search-loading", LoadingIndicator).display = False
                 return
 
@@ -146,8 +145,11 @@ class SearchScreen(Screen):
 
             urls = [(entry.image, 35) for entry in entries if entry.image]
             if urls:
-                futures = [_SEARCH_IMAGE_EXECUTOR.submit(get_image, url, w) for url, w in urls]
-                await asyncio.gather(*(asyncio.wrap_future(f) for f in futures))
+                try:
+                    futures = [_SEARCH_IMAGE_EXECUTOR.submit(get_image, url, w) for url, w in urls]
+                    await asyncio.gather(*(asyncio.wrap_future(f) for f in futures))
+                except Exception:
+                    pass
 
             for entry in entries:
                 content = self._build_item(entry)
@@ -182,15 +184,17 @@ class SearchScreen(Screen):
             self.loading = False
             if anime.title:
                 anime_vm = present_anime(anime)
-                self.app.push_screen(AnimeDetailScreen(
-                    self._service,
-                    anime_vm,
-                    source_name=source.name,
-                    source_color=source.color,
-                    on_watch=self._on_watch,
-                    get_progress=self._get_progress,
-                    on_progress=self._on_progress,
-                ))
+                self.app.push_screen(
+                    AnimeDetailScreen(
+                        self._service,
+                        anime_vm,
+                        source_name=source.name,
+                        source_color=source.color,
+                        on_watch=self._on_watch,
+                        get_progress=self._get_progress,
+                        on_progress=self._on_progress,
+                    )
+                )
         except Exception:
             self.loading = False
 

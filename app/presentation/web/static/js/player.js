@@ -1,606 +1,486 @@
-/** Player de vídeo (MP4 / HLS) com progresso, skip de opening e fallback de fonte. */
+import {
+  p, $video, $modal, $overlay, $skipBtn,
+  $centeredBtn, $progress, $progressFill, $progressBuffer, $progressThumb, $progressHover,
+  $timeCurrent, $timeDuration, $btnPlay,
+  $btnMute, $volumeSlider, $volumeFill, $volumeThumb,
+  $btnPip, $btnDownload, $btnFullscreen, $iconFsEnter, $iconFsExit, $hint,
+  destroyHls, setVideoReady,
+  ensureSkipButtonStructure, setSkipIntroLabel,
+  setSkipIntroVisible, getLocalIntroEnd, SKIP_INTRO_DEFAULT_END, SKIP_INTRO_HIDE_BEFORE,
+  showLoading, showFallback,
+} from "./player/state.js";
+import { skipIntro, scheduleIntroResolve, updateSkipIntroButton } from "./player/intro.js";
+import { attachStream } from "./player/stream.js";
+import { stopProgressLoop, reportProgress } from "./player/progress.js";
 
-import { api } from "./api.js";
-
-let hls = null;
-let progressTimer = null;
-let currentEpisodeLink = "";
-let onCloseCb = null;
-let activeOpts = null;
-let retrying = false;
-
-/** Já pulou a OP neste episódio (reset se voltar antes do fim da OP). */
-let introSkipped = false;
-/** Aguardando o usuário posicionar no fim da OP para salvar. */
-let markIntroMode = false;
-/**
- * Intervalo da opening atual: { start, end, source: 'aniskip'|'local' } | null
- */
-let introInterval = null;
-/** Promise da resolução AniSkip em andamento (skip espera ela). */
-let introResolvePromise = null;
-/** Chave do resolve atual (mal|ep|dur) — evita cancelar à toa. */
-let introResolveKey = "";
-/** true depois da 1ª tentativa de resolve (mesmo se falhou). */
-let introResolveSettled = false;
-let skipFetchToken = 0;
-
-const SKIP_INTRO_MIN_DURATION = 180;
-const SKIP_INTRO_HIDE_BEFORE = 2;
-/** Fallback quando não há AniSkip nem marcação local. */
-const SKIP_INTRO_DEFAULT_END = 85;
-const LOCAL_INTRO_KEY = "anishelf.introEnds";
-
-const $ = (sel) => document.querySelector(sel);
-
-function animeStorageKey(title) {
-  return String(title || "")
-    .trim()
-    .toLowerCase()
-    .normalize("NFKD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/\s+/g, " ");
+function formatTime(s) {
+  if (!Number.isFinite(s) || s < 0) return "0:00";
+  const m = Math.floor(s / 60);
+  const sec = Math.floor(s % 60);
+  return `${m}:${String(sec).padStart(2, "0")}`;
 }
 
-function loadLocalIntroMap() {
-  try {
-    const raw = localStorage.getItem(LOCAL_INTRO_KEY);
-    const obj = raw ? JSON.parse(raw) : {};
-    return obj && typeof obj === "object" ? obj : {};
-  } catch {
-    return {};
-  }
+function showControls(show) {
+  const overlay = $overlay();
+  if (!overlay) return;
+  overlay.classList.toggle("is-idle", !show);
+  const shell = overlay.closest(".player-shell");
+  if (shell) shell.classList.toggle("is-interactive", show);
 }
 
-function getLocalIntroEnd(animeTitle) {
-  const key = animeStorageKey(animeTitle);
-  if (!key) return null;
-  const n = Number(loadLocalIntroMap()[key]);
-  return Number.isFinite(n) && n >= 20 && n <= 240 ? n : null;
+function scheduleIdleHide() {
+  clearTimeout(p.controlsIdleTimer);
+  showControls(true);
+  const video = $video();
+  if (!video || video.paused || video.ended) return;
+  p.controlsIdleTimer = setTimeout(() => showControls(false), 3000);
 }
 
-function saveLocalIntroEnd(animeTitle, endSeconds) {
-  const key = animeStorageKey(animeTitle);
-  if (!key) return;
-  const end = Math.round(Number(endSeconds) * 10) / 10;
-  if (!Number.isFinite(end) || end < 20 || end > 240) return;
-  const map = loadLocalIntroMap();
-  map[key] = end;
-  try {
-    localStorage.setItem(LOCAL_INTRO_KEY, JSON.stringify(map));
-  } catch {
-    /* ignore */
-  }
-}
-
-function setSkipIntroVisible(show) {
-  const btn = $("#btn-skip-intro");
-  if (!btn) return;
-  btn.hidden = !show;
-}
-
-function setSkipIntroLabel(mode) {
-  const btn = $("#btn-skip-intro");
-  if (!btn) return;
-  const label = btn.querySelector(".btn-skip-intro-label") || btn;
-  if (mode === "mark") {
-    if (btn.querySelector(".btn-skip-intro-label")) {
-      btn.querySelector(".btn-skip-intro-label").textContent = "Salvar fim da OP";
-    } else {
-      // estrutura: svg + texto
-      const texts = [...btn.childNodes].filter((n) => n.nodeType === Node.TEXT_NODE);
-      // fallback: reescreve innerHTML parcial
-      const svg = btn.querySelector("svg");
-      btn.innerHTML = "";
-      if (svg) btn.appendChild(svg);
-      const span = document.createElement("span");
-      span.className = "btn-skip-intro-label";
-      span.textContent = "Salvar fim da OP";
-      btn.appendChild(span);
-    }
-    btn.title = "Posicione no fim da opening e clique para salvar (deste anime)";
-    btn.classList.add("is-mark-mode");
-  } else {
-    const span = btn.querySelector(".btn-skip-intro-label");
-    if (span) span.textContent = "Pular abertura";
-    else {
-      const svg = btn.querySelector("svg");
-      btn.innerHTML = "";
-      if (svg) btn.appendChild(svg);
-      const s = document.createElement("span");
-      s.className = "btn-skip-intro-label";
-      s.textContent = "Pular abertura";
-      btn.appendChild(s);
-    }
-    btn.title = "Pular a opening deste episódio (tecla S)";
-    btn.classList.remove("is-mark-mode");
-  }
-}
-
-function ensureSkipButtonStructure() {
-  const btn = $("#btn-skip-intro");
-  if (!btn || btn.querySelector(".btn-skip-intro-label")) return;
-  const svg = btn.querySelector("svg");
-  const text = (btn.textContent || "Pular abertura").replace(/\s+/g, " ").trim();
-  btn.textContent = "";
-  if (svg) btn.appendChild(svg);
-  const span = document.createElement("span");
-  span.className = "btn-skip-intro-label";
-  span.textContent = text || "Pular abertura";
-  btn.appendChild(span);
-}
-
-/**
- * Parseia resposta AniSkip → intervalo de OP, ou null.
- */
-function parseAniSkipOpPayload(data) {
-  if (!data?.found || !Array.isArray(data.results)) return null;
-  const ops = data.results.filter(
-    (r) => (r.skipType || r.skip_type) === "op" && r.interval
-  );
-  if (!ops.length) return null;
-  // prefere o intervalo de OP mais longo
-  ops.sort((a, b) => {
-    const ea = Number(a.interval.endTime ?? a.interval.end_time) || 0;
-    const sa = Number(a.interval.startTime ?? a.interval.start_time) || 0;
-    const eb = Number(b.interval.endTime ?? b.interval.end_time) || 0;
-    const sb = Number(b.interval.startTime ?? b.interval.start_time) || 0;
-    return eb - sb - (ea - sa);
-  });
-  const best = ops[0];
-  const start = Number(best.interval.startTime ?? best.interval.start_time);
-  const end = Number(best.interval.endTime ?? best.interval.end_time);
-  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start + 5) {
-    return null;
-  }
-  return { start: Math.max(0, start), end };
-}
-
-/**
- * Busca intervalos de OP no AniSkip via proxy do backend.
- * O backend tenta episode_length=0 (curinga) e a duração real do vídeo.
- *
- * @returns {Promise<{start:number,end:number}|null>}
- */
-async function fetchAniSkipOp(malId, episodeNumber, episodeLength) {
-  const mal = Number(malId);
-  const ep = Number(episodeNumber);
-  if (!Number.isFinite(mal) || mal <= 0) return null;
-  if (!Number.isFinite(ep) || ep <= 0) return null;
-  const len =
-    Number.isFinite(episodeLength) && episodeLength > 60
-      ? episodeLength
-      : 0;
-  try {
-    const data = await api.skipTimes(mal, ep, len, "op");
-    return parseAniSkipOpPayload(data);
-  } catch {
-    return null;
-  }
-}
-
-async function resolveIntroInterval({
-  malId,
-  episodeNumber,
-  animeTitle,
-  episodeLength,
-  token,
-}) {
-  try {
-    // 1) AniSkip (timestamps reais por episódio)
-    const fromApi = await fetchAniSkipOp(malId, episodeNumber, episodeLength);
-    if (token !== skipFetchToken) return;
-    if (fromApi) {
-      introInterval = { ...fromApi, source: "aniskip" };
-      markIntroMode = false;
-      setSkipIntroLabel("skip");
-      updateSkipIntroButton();
-      return;
-    }
-
-    // 2) Aprendizado local por anime
-    const localEnd = getLocalIntroEnd(animeTitle);
-    if (token !== skipFetchToken) return;
-    if (localEnd != null) {
-      introInterval = { start: 0, end: localEnd, source: "local" };
-      markIntroMode = false;
-      setSkipIntroLabel("skip");
-      updateSkipIntroButton();
-      return;
-    }
-
-    // 3) Sem dados → fallback 85s (effectiveIntroEnd)
-    if (token !== skipFetchToken) return;
-    introInterval = null;
-    markIntroMode = false;
-    setSkipIntroLabel("skip");
-    updateSkipIntroButton();
-  } finally {
-    if (token === skipFetchToken) {
-      introResolveSettled = true;
-    }
-  }
-}
-
-function effectiveIntroEnd(duration) {
-  // 1) AniSkip / marcação local
-  if (introInterval && Number.isFinite(introInterval.end)) {
-    return Math.min(introInterval.end, Math.max(0, duration - 5));
-  }
-  // 2) padrão 85s quando não há dados
-  if (Number.isFinite(duration) && duration > SKIP_INTRO_DEFAULT_END + 20) {
-    return Math.min(SKIP_INTRO_DEFAULT_END, Math.max(0, duration - 5));
-  }
-  return null;
-}
-
-function updateSkipIntroButton() {
-  const video = $("#video");
-  const modal = $("#player-modal");
-  if (!video || !modal || modal.hidden) {
-    setSkipIntroVisible(false);
-    return;
-  }
-  const duration = video.duration;
-  const t = video.currentTime || 0;
-  if (!Number.isFinite(duration) || duration < SKIP_INTRO_MIN_DURATION || video.ended) {
-    setSkipIntroVisible(false);
-    return;
-  }
-
-  // Se o usuário voltou para antes do fim da OP, permite pular de novo
-  const endProbe = effectiveIntroEnd(duration);
-  if (
-    introSkipped &&
-    endProbe != null &&
-    t < endProbe - SKIP_INTRO_HIDE_BEFORE
-  ) {
-    introSkipped = false;
-  }
-
-  // Modo marcar (opcional, clique longo): salvar fim da OP deste anime
-  if (markIntroMode) {
-    setSkipIntroLabel("mark");
-    setSkipIntroVisible(t >= 15 && t < duration - 10);
-    return;
-  }
-
-  if (introSkipped) {
-    setSkipIntroVisible(false);
-    return;
-  }
-
-  const end = endProbe;
-  if (end == null) {
-    setSkipIntroVisible(false);
-    return;
-  }
-
-  // Visível desde o começo do ep até o fim da OP (mesmo se a OP começar tarde,
-  // ex.: cold open 0–88s + opening 88–179s — o botão precisa aparecer já no 0).
-  setSkipIntroLabel("skip");
-  setSkipIntroVisible(t >= 0 && t < end - SKIP_INTRO_HIDE_BEFORE);
-}
-
-function toastSkip(msg) {
-  // reusa toast global se existir
-  try {
-    const el = document.getElementById("toast");
-    if (!el) return;
-    el.hidden = false;
-    el.textContent = msg;
-    clearTimeout(toastSkip._t);
-    toastSkip._t = setTimeout(() => {
-      el.hidden = true;
-    }, 3200);
-  } catch {
-    /* ignore */
-  }
-}
-
-async function skipIntro() {
-  const video = $("#video");
+function togglePlay() {
+  const video = $video();
   if (!video) return;
-  const duration = video.duration;
-  if (!Number.isFinite(duration) || duration < 30) return;
-
-  // Finaliza marcação manual
-  if (markIntroMode) {
-    const end = video.currentTime;
-    if (end < 20) {
-      toastSkip("Posicione mais adiante — no fim da opening");
-      return;
-    }
-    const title = activeOpts?.title || "";
-    saveLocalIntroEnd(title, end);
-    introInterval = { start: 0, end, source: "local" };
-    markIntroMode = false;
-    introSkipped = true;
-    setSkipIntroVisible(false);
-    setSkipIntroLabel("skip");
-    toastSkip(`Opening salva (~${Math.round(end)}s) para este anime`);
+  if (video.paused) {
     video.play().catch(() => {});
-    reportProgress(false);
-    return;
+  } else {
+    video.pause();
   }
-
-  // Espera AniSkip/meta se ainda estiver buscando (evita pular 85s cedo demais)
-  if (!introResolveSettled && introResolvePromise) {
-    toastSkip("Buscando abertura…");
-    try {
-      await introResolvePromise;
-    } catch {
-      /* ignore */
-    }
-  }
-
-  const end = effectiveIntroEnd(duration);
-  if (end == null) {
-    setSkipIntroVisible(false);
-    return;
-  }
-
-  const target = Math.min(end, Math.max(0, duration - 5));
-  const src = introInterval?.source || "default";
-  try {
-    video.currentTime = target;
-  } catch {
-    /* ignore */
-  }
-  introSkipped = true;
-  setSkipIntroVisible(false);
-  if (src === "default") {
-    toastSkip(`Opening sem marcação · pulou ${Math.round(target)}s`);
-  } else if (src === "aniskip") {
-    const m = Math.floor(target / 60);
-    const s = Math.round(target % 60);
-    toastSkip(`Abertura pulada · ${m}:${String(s).padStart(2, "0")}`);
-  } else if (src === "local") {
-    toastSkip(`Abertura pulada · ${Math.round(target)}s`);
-  }
-  video.play().catch(() => {});
-  reportProgress(false);
 }
 
-async function resolveMalIdIfNeeded(animeTitle, knownMal) {
-  if (knownMal && Number(knownMal) > 0) return Number(knownMal);
-  const title = String(animeTitle || "").trim();
-  if (!title || title.length < 2) return null;
-  // tenta título completo e versão enxuta (sem "Episódio N")
-  const variants = [
-    title,
-    title.replace(/\s*[-–—:|]\s*epis[oó]dio\s*\d+.*$/i, "").trim(),
-    title.replace(/\s+ep\s*\d+.*$/i, "").trim(),
-  ].filter((t, i, arr) => t && arr.indexOf(t) === i);
-  for (const q of variants) {
-    try {
-      const meta = await api.meta(q);
-      const mal = meta?.mal_id;
-      if (mal && Number(mal) > 0) {
-        if (activeOpts) {
-          activeOpts.malId = Number(mal);
-          activeOpts.playMeta = {
-            ...(activeOpts.playMeta || {}),
-            mal_id: Number(mal),
-          };
-        }
-        return Number(mal);
-      }
-    } catch {
-      /* tenta próxima variante */
-    }
+function updatePlayButton() {
+  const video = $video();
+  const playBtn = $btnPlay();
+  const centered = $centeredBtn();
+  if (!video || !playBtn) return;
+  const isPlaying = !video.paused && !video.ended;
+  playBtn.classList.toggle("is-playing", isPlaying);
+  if (centered) {
+    centered.classList.toggle("is-visible", video.paused && video.readyState >= 1);
   }
-  return null;
 }
 
-function parseEpisodeNumberLoose(value) {
-  if (value == null || value === "") return null;
-  if (typeof value === "number" && Number.isFinite(value) && value > 0) {
-    return Math.floor(value);
+function updateProgress() {
+  const video = $video();
+  const fill = $progressFill();
+  const thumb = $progressThumb();
+  const current = $timeCurrent();
+  const dur = $timeDuration();
+  if (!video || !fill) return;
+  const d = video.duration;
+  const t = video.currentTime || 0;
+  if (Number.isFinite(d) && d > 0) {
+    const pct = (t / d) * 100;
+    fill.style.width = `${pct}%`;
+    if (thumb) thumb.style.left = `${pct}%`;
   }
-  const s = String(value);
-  const m = s.match(/(?:epis[oó]dio|ep)\s*[#.:]?\s*(\d{1,4})/i) || s.match(/\b(\d{1,4})\b/);
-  if (!m) return null;
-  const n = Number(m[1]);
-  return Number.isFinite(n) && n > 0 ? n : null;
+  if (current) current.textContent = formatTime(t);
+  if (dur && Number.isFinite(d)) dur.textContent = formatTime(d);
 }
 
-function scheduleIntroResolve({ force = false } = {}) {
-  const video = $("#video");
-  const episodeNumber = parseEpisodeNumberLoose(
-    activeOpts?.episodeNumber ??
-      activeOpts?.playMeta?.episode_number ??
-      activeOpts?.episodeLabel ??
-      activeOpts?.title
-  );
-  const animeTitle = activeOpts?.title || activeOpts?.playMeta?.anime_title || "";
-  const episodeLength =
-    video && Number.isFinite(video.duration) && video.duration > 0
-      ? video.duration
-      : activeOpts?.episodeLength || null;
-  const knownMal = activeOpts?.malId || activeOpts?.playMeta?.mal_id || null;
+function updateBuffer() {
+  const video = $video();
+  const buf = $progressBuffer();
+  if (!video || !buf || !video.buffered.length) return;
+  const d = video.duration;
+  if (!Number.isFinite(d) || d <= 0) return;
+  const end = video.buffered.end(video.buffered.length - 1);
+  buf.style.width = `${(end / d) * 100}%`;
+}
 
-  const key = `${knownMal || animeTitle}|${episodeNumber || "?"}|${
-    episodeLength ? Math.round(episodeLength) : 0
-  }`;
-
-  // já resolvendo / resolvido com a mesma chave — reutiliza
-  if (!force && introResolveKey === key && introResolvePromise) {
-    return introResolvePromise;
+function updateVolume() {
+  const video = $video();
+  const fill = $volumeFill();
+  const slider = $volumeSlider();
+  if (!video || !fill) return;
+  const vol = video.muted ? 0 : video.volume;
+  fill.style.width = `${vol * 100}%`;
+  if (slider) {
+    const thumb = slider.querySelector(".player-volume-thumb");
+    if (thumb) thumb.style.left = `${vol * 100}%`;
   }
-  // se já temos AniSkip e só a duração mudou um pouco, não joga fora
-  if (
-    !force &&
-    introInterval?.source === "aniskip" &&
-    introResolveSettled &&
-    introResolveKey &&
-    introResolveKey.startsWith(`${knownMal || animeTitle}|${episodeNumber || "?"}|`)
-  ) {
-    return introResolvePromise || Promise.resolve();
+}
+
+function updateVolumeIcon() {
+  const video = $video();
+  const icons = {
+    high: document.getElementById("icon-volume-high"),
+    mid: document.getElementById("icon-volume-mid"),
+    low: document.getElementById("icon-volume-low"),
+    mute: document.getElementById("icon-volume-mute"),
+  };
+  if (!video) return;
+  Object.values(icons).forEach((i) => { if (i) i.hidden = true; });
+  if (video.muted || video.volume === 0) {
+    if (icons.mute) icons.mute.hidden = false;
+  } else if (video.volume >= 0.5) {
+    if (icons.high) icons.high.hidden = false;
+  } else if (video.volume > 0) {
+    if (icons.mid) icons.mid.hidden = false;
+  } else {
+    if (icons.low) icons.low.hidden = false;
   }
+}
 
-  const token = ++skipFetchToken;
-  introResolveKey = key;
-  introResolveSettled = false;
+function toggleMute() {
+  const video = $video();
+  if (!video) return;
+  video.muted = !video.muted;
+}
 
-  introResolvePromise = (async () => {
-    try {
-      const malId = await resolveMalIdIfNeeded(animeTitle, knownMal);
-      if (token !== skipFetchToken) return;
-      await resolveIntroInterval({
-        malId,
-        episodeNumber,
-        animeTitle,
-        episodeLength,
-        token,
-      });
-    } finally {
-      if (token === skipFetchToken) {
-        introResolveSettled = true;
-      }
-    }
-  })();
+function setVolumeFromEvent(e) {
+  const slider = $volumeSlider();
+  const video = $video();
+  if (!slider || !video) return;
+  const rect = slider.getBoundingClientRect();
+  const x = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+  video.volume = x;
+  video.muted = false;
+}
 
-  return introResolvePromise;
+function toggleFullscreen() {
+  const modal = $modal();
+  if (!modal) return;
+  if (document.fullscreenElement) {
+    document.exitFullscreen().catch(() => {});
+  } else {
+    modal.requestFullscreen().catch(() => {});
+  }
+}
+
+function togglePip() {
+  const video = $video();
+  if (!video) return;
+  if (document.pictureInPictureElement) {
+    document.exitPictureInPicture().catch(() => {});
+  } else if (document.pictureInPictureEnabled) {
+    video.requestPictureInPicture().catch(() => {});
+  }
+}
+
+function updateFullscreenIcon() {
+  const enter = $iconFsEnter();
+  const exit = $iconFsExit();
+  if (!enter || !exit) return;
+  const isFs = !!document.fullscreenElement;
+  enter.hidden = isFs;
+  exit.hidden = !isFs;
+}
+
+function handleProgressClick(e) {
+  const wrap = $progress();
+  const video = $video();
+  if (!wrap || !video) return;
+  const rect = wrap.getBoundingClientRect();
+  const x = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+  const d = video.duration;
+  if (Number.isFinite(d) && d > 0) {
+    video.currentTime = x * d;
+  }
+}
+
+function handleProgressHover(e) {
+  const wrap = $progress();
+  const hover = $progressHover();
+  const video = $video();
+  if (!wrap || !hover || !video) return;
+  const rect = wrap.getBoundingClientRect();
+  const x = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+  const d = video.duration;
+  hover.style.left = `${x * 100}%`;
+  if (Number.isFinite(d) && d > 0) {
+    hover.textContent = formatTime(x * d);
+  }
 }
 
 export function initPlayer({ onClose } = {}) {
-  onCloseCb = onClose;
+  p.onCloseCb = onClose;
   ensureSkipButtonStructure();
-  $("#player-close")?.addEventListener("click", closePlayer);
-  $("#btn-skip-intro")?.addEventListener("click", (e) => {
+  document.querySelector("#player-close")?.addEventListener("click", closePlayer);
+
+  const skipBtn = $skipBtn();
+  skipBtn?.addEventListener("click", (e) => {
     e.preventDefault();
     e.stopPropagation();
     skipIntro().catch(() => {});
   });
-  // clique longo: marcar fim da OP manualmente (salva para o anime)
+
   let markHoldTimer = null;
-  $("#btn-skip-intro")?.addEventListener("pointerdown", () => {
+  skipBtn?.addEventListener("pointerdown", () => {
     clearTimeout(markHoldTimer);
     markHoldTimer = setTimeout(() => {
-      markIntroMode = true;
+      p.markIntroMode = true;
       setSkipIntroLabel("mark");
-      toastSkip("Modo marcar: vá ao fim da OP e clique em Salvar");
       updateSkipIntroButton();
     }, 650);
   });
-  const clearMarkHold = () => {
-    clearTimeout(markHoldTimer);
-    markHoldTimer = null;
-  };
-  $("#btn-skip-intro")?.addEventListener("pointerup", clearMarkHold);
-  $("#btn-skip-intro")?.addEventListener("pointerleave", clearMarkHold);
-  $("#btn-skip-intro")?.addEventListener("pointercancel", clearMarkHold);
+  const clearMarkHold = () => { clearTimeout(markHoldTimer); markHoldTimer = null; };
+  skipBtn?.addEventListener("pointerup", clearMarkHold);
+  skipBtn?.addEventListener("pointerleave", clearMarkHold);
+  skipBtn?.addEventListener("pointercancel", clearMarkHold);
+
+  const shell = document.querySelector(".player-shell");
+  if (shell) {
+    shell.addEventListener("mousemove", scheduleIdleHide);
+    shell.addEventListener("touchstart", () => {
+      const ov = $overlay();
+      if (!ov || ov.classList.contains("is-idle")) {
+        showControls(true);
+        scheduleIdleHide();
+      }
+    });
+    shell.addEventListener("click", (e) => {
+      const skip = $skipBtn();
+      const centered = $centeredBtn();
+      const progress = $progress();
+      const isControl = e.target?.closest(".player-overlay, .player-btn, .btn-skip-intro, .player-hint, .player-speed-btn, .icon-btn, .video-centered-btn, .btn, .player-ended, .player-fallback, .player-loading, #btn-download");
+      if (!isControl && !e.target?.closest("#video")) {
+        togglePlay();
+      }
+    });
+  }
+
+  const centeredBtn = $centeredBtn();
+  centeredBtn?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    togglePlay();
+  });
+
+  const btnPlay = $btnPlay();
+  btnPlay?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    togglePlay();
+  });
+
+  const progressWrap = $progress();
+  progressWrap?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    handleProgressClick(e);
+  });
+  progressWrap?.addEventListener("mousemove", handleProgressHover);
+
+  const muteBtn = $btnMute();
+  muteBtn?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    toggleMute();
+  });
+
+  const volSlider = $volumeSlider();
+  volSlider?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    setVolumeFromEvent(e);
+  });
+
+  const volBtn = $btnMute();
+  volBtn?.addEventListener("mouseenter", () => {
+    const s = $volumeSlider();
+    if (s) s.classList.add("is-open");
+  });
+
+  const volWrap = document.querySelector(".player-volume-wrap");
+  volWrap?.addEventListener("mouseleave", () => {
+    const s = $volumeSlider();
+    if (s) s.classList.remove("is-open");
+  });
+
+  const pipBtn = $btnPip();
+  pipBtn?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    togglePip();
+  });
+
+  const fsBtn = $btnFullscreen();
+  fsBtn?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    toggleFullscreen();
+  });
+
+  const dlBtn = $btnDownload();
+  dlBtn?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const url = p.activeOpts?.streamUrl || p.activeOpts?.pageUrl || p.activeOpts?.externalUrl;
+    if (!url) return;
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = p.activeOpts?.title || "video";
+    a.target = "_blank";
+    a.rel = "noopener";
+    a.click();
+  });
+
+  const video = $video();
+  video?.addEventListener("play", () => {
+    updatePlayButton();
+    scheduleIdleHide();
+  });
+  video?.addEventListener("pause", () => {
+    updatePlayButton();
+    showControls(true);
+    clearTimeout(p.controlsIdleTimer);
+  });
+  video?.addEventListener("timeupdate", () => {
+    updateProgress();
+    updateSkipIntroButton();
+  });
+  video?.addEventListener("progress", updateBuffer);
+  video?.addEventListener("volumechange", () => {
+    updateVolume();
+    updateVolumeIcon();
+    localStorage.setItem("anishelf.volume", String(video.volume));
+  });
+  video?.addEventListener("loadedmetadata", () => {
+    updateProgress();
+    updateBuffer();
+    updateVolume();
+    updateVolumeIcon();
+    scheduleIntroResolve();
+    updateSkipIntroButton();
+  });
+  video?.addEventListener("ended", () => {
+    reportProgress(true);
+    setSkipIntroVisible(false);
+    showEnded();
+    updatePlayButton();
+    showControls(true);
+    clearTimeout(p.controlsIdleTimer);
+  });
+  video?.addEventListener("waiting", showBuffering);
+  video?.addEventListener("canplay", hideBuffering);
+  video?.addEventListener("playing", () => {
+    hideBuffering();
+    updatePlayButton();
+  });
+  video?.addEventListener("seeked", () => {
+    updateSkipIntroButton();
+    updateProgress();
+  });
+
+  const savedVol = localStorage.getItem("anishelf.volume");
+  if (video && savedVol != null) video.volume = Math.min(1, Math.max(0, Number(savedVol)));
+
+  const SPEEDS = [1, 1.5, 2, 0.5];
+  const speedBtn = document.querySelector("#player-speed");
+  let speedIdx = 0;
+  speedBtn?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    speedIdx = (speedIdx + 1) % SPEEDS.length;
+    const rate = SPEEDS[speedIdx];
+    if (video) video.playbackRate = rate;
+    speedBtn.textContent = rate + "×";
+  });
+
+  document.querySelector("#player-retry")?.addEventListener("click", () => {
+    const opts = p.activeOpts;
+    if (!opts) return;
+    document.querySelector("#player-fallback").hidden = true;
+    p.retrying = false;
+    showLoading(true);
+    attachStream(opts).catch(() => {});
+  });
+  document.querySelector("#player-ended-close")?.addEventListener("click", closePlayer);
+  document.querySelector("#player-next")?.addEventListener("click", () => {
+    closePlayer();
+    const link = p.activeOpts?.episodeLink || "";
+    const source = p.activeOpts?.sourceName || "";
+    if (link) {
+      import("./router.js").then(({ navigate }) => navigate(`anime?link=${encodeURIComponent(link)}&source=${encodeURIComponent(source)}`));
+    }
+  });
+
+  document.addEventListener("fullscreenchange", updateFullscreenIcon);
+
   document.addEventListener("keydown", (e) => {
-    if ($("#player-modal")?.hidden) return;
-    if (e.key === "Escape") {
-      closePlayer();
+    if ($modal()?.hidden) return;
+    if (e.key === "Escape") { closePlayer(); return; }
+    if (e.key === "f" || e.key === "F") {
+      if (!e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        toggleFullscreen();
+      }
       return;
     }
-    if (
-      (e.key === "s" || e.key === "S") &&
-      !e.ctrlKey &&
-      !e.metaKey &&
-      !e.altKey
-    ) {
-      const tag = (e.target?.tagName || "").toLowerCase();
-      if (tag === "input" || tag === "textarea" || e.target?.isContentEditable) {
-        return;
+    if (e.key === "m" || e.key === "M") {
+      if (!e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        toggleMute();
       }
-      if (!$("#btn-skip-intro")?.hidden || markIntroMode) {
+      return;
+    }
+    if (e.key === "ArrowLeft") {
+      e.preventDefault();
+      if (video) video.currentTime = Math.max(0, video.currentTime - 10);
+      return;
+    }
+    if (e.key === "ArrowRight") {
+      e.preventDefault();
+      if (video) video.currentTime = Math.min(video.duration || 0, video.currentTime + 10);
+      return;
+    }
+    if (e.key === "ArrowUp") {
+      e.preventDefault();
+      if (video) video.volume = Math.min(1, video.volume + 0.1);
+      return;
+    }
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      if (video) video.volume = Math.max(0, video.volume - 0.1);
+      return;
+    }
+    if (e.key === " " || e.key === "k" || e.key === "K") {
+      if (!e.ctrlKey && !e.metaKey && !e.altKey) {
+        const tag = (e.target?.tagName || "").toLowerCase();
+        if (tag === "input" || tag === "textarea" || tag === "button" || e.target?.isContentEditable) return;
+        e.preventDefault();
+        togglePlay();
+      }
+      return;
+    }
+    if ((e.key === "s" || e.key === "S") && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      const tag = (e.target?.tagName || "").toLowerCase();
+      if (tag === "input" || tag === "textarea" || e.target?.isContentEditable) return;
+      if (!$skipBtn()?.hidden || p.markIntroMode) {
         e.preventDefault();
         skipIntro().catch(() => {});
       }
     }
   });
 
-  const video = $("#video");
-  video?.addEventListener("ended", () => {
-    reportProgress(true);
-    setSkipIntroVisible(false);
-  });
-  video?.addEventListener("timeupdate", updateSkipIntroButton);
-  video?.addEventListener("loadedmetadata", () => {
-    // com duração real, AniSkip acerta melhor o match
-    scheduleIntroResolve();
-    updateSkipIntroButton();
-  });
-  video?.addEventListener("play", updateSkipIntroButton);
-  video?.addEventListener("seeked", updateSkipIntroButton);
-}
-
-function setVideoReady(ready) {
-  const video = $("#video");
-  if (!video) return;
-  video.classList.toggle("is-ready", !!ready);
-}
-
-function showLoading(show, msg) {
-  const el = $("#player-loading");
-  if (!el) return;
-  el.hidden = !show;
-  // esconde o <video> no load → some o spinner preto nativo do HTML5
-  if (show) setVideoReady(false);
-  const p = el.querySelector("p");
-  if (p && msg) p.textContent = msg;
-  else if (p && show) p.textContent = "Abrindo vídeo…";
-}
-
-function showFallback(url) {
-  const fb = $("#player-fallback");
-  const a = $("#player-external");
-  if (fb) fb.hidden = false;
-  if (a) {
-    a.href = url || "#";
-    a.style.display = url ? "" : "none";
-  }
-  showLoading(false);
-  setVideoReady(false);
-  setSkipIntroVisible(false);
-}
-
-function destroyHls() {
-  if (hls) {
-    try {
-      hls.destroy();
-    } catch {
-      /* ignore */
+  document.addEventListener("keyup", (e) => {
+    if (e.key === " " && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      const tag = (e.target?.tagName || "").toLowerCase();
+      if (tag === "button") return;
+      e.preventDefault();
     }
-    hls = null;
-  }
+  });
 }
 
-function startProgressLoop() {
-  stopProgressLoop();
-  progressTimer = setInterval(() => reportProgress(false), 8000);
+function showBuffering() {
+  const el = document.querySelector("#player-buffering");
+  if (el) el.hidden = false;
 }
 
-function stopProgressLoop() {
-  if (progressTimer) {
-    clearInterval(progressTimer);
-    progressTimer = null;
-  }
+function hideBuffering() {
+  const el = document.querySelector("#player-buffering");
+  if (el) el.hidden = true;
 }
 
-async function reportProgress(finished) {
-  if (!currentEpisodeLink) return;
-  const video = $("#video");
-  if (!video || !video.duration || !Number.isFinite(video.duration)) return;
-  const pos = finished ? video.duration : video.currentTime;
-  try {
-    await api.progress({
-      episode_link: currentEpisodeLink,
-      progress_seconds: pos,
-      duration_seconds: video.duration,
-    });
-  } catch {
-    /* silencioso */
-  }
+export function showEnded() {
+  const el = document.querySelector("#player-ended");
+  if (el) el.hidden = false;
+  showControls(true);
+  clearTimeout(p.controlsIdleTimer);
+  const centered = $centeredBtn();
+  if (centered) centered.classList.remove("is-visible");
+}
+
+function hideEnded() {
+  const el = document.querySelector("#player-ended");
+  if (el) el.hidden = true;
 }
 
 export function closePlayer() {
-  const modal = $("#player-modal");
-  const video = $("#video");
+  showControls(true);
+  clearTimeout(p.controlsIdleTimer);
+  const modal = $modal();
+  const video = $video();
   reportProgress(false);
   stopProgressLoop();
   destroyHls();
@@ -610,219 +490,74 @@ export function closePlayer() {
     video.load();
     setVideoReady(false);
   }
-  currentEpisodeLink = "";
-  activeOpts = null;
-  retrying = false;
-  introSkipped = false;
-  markIntroMode = false;
-  introInterval = null;
-  introResolvePromise = null;
-  introResolveKey = "";
-  introResolveSettled = false;
-  skipFetchToken += 1;
+  p.currentEpisodeLink = "";
+  p.activeOpts = null;
+  p.retrying = false;
+  p.introSkipped = false;
+  p.markIntroMode = false;
+  p.introInterval = null;
+  p.introResolvePromise = null;
+  p.introResolveKey = "";
+  p.introResolveSettled = false;
+  p.skipFetchToken += 1;
   setSkipIntroVisible(false);
+  hideEnded();
+  hideBuffering();
   if (modal) modal.hidden = true;
   document.body.style.overflow = "";
   document.body.classList.remove("player-active");
-  onCloseCb?.();
+  p.onCloseCb?.();
 }
 
-/**
- * Se o stream falhar no <video>, tenta próximas fontes candidatas.
- */
-async function tryNextCandidate(reason) {
-  if (retrying || !activeOpts) {
-    showFallback(activeOpts?.externalUrl || activeOpts?.pageUrl);
-    return;
-  }
-  const rest = activeOpts.fallbackCandidates || [];
-  if (!rest.length) {
-    showFallback(activeOpts.externalUrl || activeOpts.pageUrl);
-    return;
-  }
-
-  retrying = true;
-  const next = rest[0];
-  const remaining = rest.slice(1);
-  showLoading(true, `Fonte falhou · tentando ${next.name || "outra"}…`);
-
-  const meta = activeOpts.playMeta || {};
-  try {
-    const res = await api.play({
-      preferred_source: next.name,
-      episode_link: next.link,
-      candidates: [next, ...remaining],
-      anime_title: meta.anime_title || activeOpts.title || "",
-      episode_title: meta.episode_title || "",
-      episode_number: meta.episode_number || "0",
-      anime_image: meta.anime_image || "",
-      season_number: meta.season_number || 1,
-      source_color: next.color || "",
-    });
-
-    activeOpts = {
-      ...activeOpts,
-      playable: res.playable,
-      streamUrl: res.stream_url,
-      isHls: res.is_hls,
-      startAt: res.start_at ?? activeOpts.startAt,
-      pageUrl: res.page_url,
-      externalUrl: res.external_url,
-      episodeLink: res.episode_link || next.link,
-      episodeLabel: [
-        meta.episode_number && meta.episode_number !== "?"
-          ? `Ep ${meta.episode_number}`
-          : "Ep",
-        res.source_name || next.name,
-      ]
-        .filter(Boolean)
-        .join(" · "),
-      fallbackCandidates: remaining.filter(
-        (c) => c.link !== (res.episode_link || next.link)
-      ),
-    };
-    $("#player-ep").textContent = activeOpts.episodeLabel || "";
-    currentEpisodeLink = activeOpts.episodeLink || "";
-    retrying = false;
-
-    if (!res.playable || !res.stream_url) {
-      await tryNextCandidate(reason);
-      return;
-    }
-    await attachStream(activeOpts);
-  } catch {
-    retrying = false;
-    activeOpts.fallbackCandidates = remaining;
-    await tryNextCandidate(reason);
-  }
-}
-
-function onStreamFatal() {
-  tryNextCandidate("playback error");
-}
-
-async function attachStream(opts) {
-  const video = $("#video");
-  if (!video) return;
-
-  destroyHls();
-  const fb = $("#player-fallback");
-  if (fb) fb.hidden = true;
-  showLoading(true);
-  setSkipIntroVisible(false);
-
-  if (!opts.playable || !opts.streamUrl) {
-    await tryNextCandidate("not playable");
-    return;
-  }
-
-  const startAt = Math.max(0, Number(opts.startAt) || 0);
-  const url = opts.streamUrl;
-
-  const onReady = () => {
-    showLoading(false);
-    setVideoReady(true);
-    if (startAt > 2) {
-      const seek = () => {
-        try {
-          video.currentTime = startAt;
-        } catch {
-          /* ignore */
-        }
-        video.removeEventListener("loadedmetadata", seek);
-      };
-      if (video.readyState >= 1) seek();
-      else video.addEventListener("loadedmetadata", seek);
-    }
-    video.play().catch(() => {});
-    startProgressLoop();
-    scheduleIntroResolve();
-    updateSkipIntroButton();
-  };
-
-  try {
-    if (opts.isHls || url.includes(".m3u8")) {
-      if (window.Hls && window.Hls.isSupported()) {
-        hls = new window.Hls({
-          enableWorker: true,
-          xhrSetup(xhr) {
-            xhr.withCredentials = false;
-          },
-        });
-        hls.loadSource(url);
-        hls.attachMedia(video);
-        hls.on(window.Hls.Events.MANIFEST_PARSED, onReady);
-        hls.on(window.Hls.Events.ERROR, (_e, data) => {
-          if (data?.fatal) onStreamFatal();
-        });
-        return;
-      }
-      if (video.canPlayType("application/vnd.apple.mpegurl")) {
-        video.src = url;
-        video.addEventListener("loadedmetadata", onReady, { once: true });
-        video.addEventListener("error", onStreamFatal, { once: true });
-        return;
-      }
-      await tryNextCandidate("hls unsupported");
-      return;
-    }
-
-    video.src = url;
-    video.addEventListener("loadeddata", onReady, { once: true });
-    video.addEventListener("error", onStreamFatal, { once: true });
-  } catch {
-    await tryNextCandidate("attach failed");
-  }
-}
-
-/**
- * @param {object} opts
- */
 export async function openPlayer(opts) {
-  const modal = $("#player-modal");
-  const video = $("#video");
-  const fb = $("#player-fallback");
+  const modal = $modal();
+  const video = $video();
+  const fb = document.querySelector("#player-fallback");
   if (!modal || !video) return;
 
   destroyHls();
   if (fb) fb.hidden = true;
   showLoading(true);
-  retrying = false;
-  introSkipped = false;
-  markIntroMode = false;
-  introInterval = null;
-  introResolvePromise = null;
-  introResolveKey = "";
-  introResolveSettled = false;
-  skipFetchToken += 1;
+  showControls(true);
+  clearTimeout(p.controlsIdleTimer);
+  p.retrying = false;
+  p.introSkipped = false;
+  p.markIntroMode = false;
+  p.introInterval = null;
+  p.introResolvePromise = null;
+  p.introResolveKey = "";
+  p.introResolveSettled = false;
+  p.skipFetchToken += 1;
   setSkipIntroVisible(false);
   ensureSkipButtonStructure();
   setSkipIntroLabel("skip");
 
-  activeOpts = {
+  p.activeOpts = {
     ...opts,
     fallbackCandidates: [...(opts.fallbackCandidates || [])],
   };
 
-  $("#player-title").textContent = opts.title || "Tocando";
-  $("#player-ep").textContent = opts.episodeLabel || "";
-  currentEpisodeLink = opts.episodeLink || "";
+  document.querySelector("#player-title").textContent = opts.title || "Tocando";
+  document.querySelector("#player-ep").textContent = opts.episodeLabel || "";
+  p.currentEpisodeLink = opts.episodeLink || "";
 
   modal.hidden = false;
   document.body.style.overflow = "hidden";
   document.body.classList.add("player-active");
 
-  // retomada depois da OP → não mostra pular
+  video.volume = Math.min(1, Math.max(0, Number(localStorage.getItem("anishelf.volume") || 1)));
+  updateVolume();
+  updateVolumeIcon();
+  updatePlayButton();
+  updateProgress();
+
   const startAt = Math.max(0, Number(opts.startAt) || 0);
   const localEnd = getLocalIntroEnd(opts.title || "");
-  const pastEnd =
-    localEnd != null ? localEnd : SKIP_INTRO_DEFAULT_END;
+  const pastEnd = localEnd != null ? localEnd : SKIP_INTRO_DEFAULT_END;
   if (startAt >= pastEnd - SKIP_INTRO_HIDE_BEFORE) {
-    introSkipped = true;
+    p.introSkipped = true;
   }
 
-  // resolve AniSkip em paralelo com o stream (skip espera se clicar cedo)
   scheduleIntroResolve();
-
-  await attachStream(activeOpts);
+  await attachStream(p.activeOpts);
 }

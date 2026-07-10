@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from app.infrastructure.player.backends import (
     AutoBackend,
     BrowserBackend,
@@ -11,6 +13,8 @@ from app.infrastructure.player.backends import (
     VlcBackend,
 )
 from app.infrastructure.player.base import PlayRequest, VideoBackend
+
+logger = logging.getLogger(__name__)
 
 # Constantes públicas (ids estáveis no config.json)
 PLAYER_AUTO = AutoBackend.id
@@ -75,9 +79,10 @@ def is_player_available(name: str) -> bool:
 
 
 def auto_chain_available() -> bool:
-    return any(_INSTANCES[c.id].is_available() for c in _AUTO_ORDER) or _INSTANCES[
-        PLAYER_FFPLAY
-    ].is_available()
+    return (
+        any(_INSTANCES[c.id].is_available() for c in _AUTO_ORDER)
+        or _INSTANCES[PLAYER_FFPLAY].is_available()
+    )
 
 
 def fallback_backends(preferred: str) -> list[VideoBackend]:
@@ -98,9 +103,17 @@ def fallback_backends(preferred: str) -> list[VideoBackend]:
 
 def try_play(preferred: str, request: PlayRequest) -> bool:
     """Tenta a cadeia de backends até um aceitar o pedido."""
-    for backend in fallback_backends(preferred):
+    chain = fallback_backends(preferred)
+    failed: list[str] = []
+    for backend in chain:
+        logger.info("Tentando player: %s", backend.id)
         if backend.play(request):
+            logger.info("Player %s aceitou o pedido", backend.id)
             return True
+        failed.append(backend.id)
+        logger.warning("Player %s recusou — tentando próximo na cadeia", backend.id)
+    if failed:
+        logger.warning("Nenhum player disponível. Tentados: %s", ", ".join(failed))
     return False
 
 

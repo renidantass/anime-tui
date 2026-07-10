@@ -259,7 +259,7 @@ function renderWatchLaterBtn(detail) {
     <svg viewBox="0 0 24 24" width="16" height="16" fill="${isSaved ? "currentColor" : "none"}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
       <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>
     </svg>
-    <span>${isSaved ? "Na lista" : "Assistir depois"}</span>
+    <span>${isSaved ? "Nos favoritos" : "Favoritos"}</span>
   `;
   btn.addEventListener("click", async (e) => {
     e.stopPropagation();
@@ -273,9 +273,9 @@ function renderWatchLaterBtn(detail) {
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>
           </svg>
-          <span>Assistir depois</span>
+          <span>Favoritos</span>
         `;
-        toast("Removido da lista");
+        toast("Removido dos favoritos");
       } else {
         await _api.addWatchLater({
           anime_title: detail.title,
@@ -295,9 +295,9 @@ function renderWatchLaterBtn(detail) {
           <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>
           </svg>
-          <span>Na lista</span>
+          <span>Nos favoritos</span>
         `;
-        toast("Adicionado à lista");
+        toast("Adicionado aos favoritos");
       }
     } catch (e) {
       toast(e.message || "Erro ao salvar", true);

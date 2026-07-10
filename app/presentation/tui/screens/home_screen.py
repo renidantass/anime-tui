@@ -1,20 +1,20 @@
 import asyncio
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
-from typing import Callable
 
 from rich.table import Table
 from rich.text import Text
 from textual.app import ComposeResult
 from textual.screen import Screen
-from textual.widgets import Header, Footer, Static, ListView, ListItem, LoadingIndicator
+from textual.widgets import Footer, Header, ListItem, ListView, LoadingIndicator, Static
 
 from app.application import EpisodeEntry, SourceInfo
 from app.application.anime_service import AnimeService
 from app.presentation.tui.screens.search_screen import SearchScreen
-from app.presentation.tui.screens.source_select_screen import SourceSelectScreen
 from app.presentation.tui.screens.source_manager_screen import SourceManagerScreen
-from app.presentation.tui.utils.image_cache import get_image
+from app.presentation.tui.screens.source_select_screen import SourceSelectScreen
 from app.presentation.tui.utils.badge import badge_tag
+from app.presentation.tui.utils.image_cache import get_image
 
 _IMAGE_EXECUTOR = ThreadPoolExecutor(max_workers=8)
 
@@ -79,12 +79,14 @@ class HomeScreen(Screen):
         await self._load_episodes()
 
     def action_search(self) -> None:
-        self.app.push_screen(SearchScreen(
-            self._service,
-            on_watch=self._on_watch,
-            get_progress=self._get_progress,
-            on_progress=self._on_progress,
-        ))
+        self.app.push_screen(
+            SearchScreen(
+                self._service,
+                on_watch=self._on_watch,
+                get_progress=self._get_progress,
+                on_progress=self._on_progress,
+            )
+        )
 
     def action_sources(self) -> None:
         self.app.push_screen(SourceManagerScreen(self._service))
@@ -113,9 +115,7 @@ class HomeScreen(Screen):
             self._update_filter_label()
 
     def _update_filter_label(self):
-        self.query_one("#filter-label", Static).update(
-            f"[yellow]Filtrar: {self._filter_query}▌[/]"
-        )
+        self.query_one("#filter-label", Static).update(f"[yellow]Filtrar: {self._filter_query}▌[/]")
 
     def on_key(self, event) -> None:
         label = self.query_one("#filter-label", Static)
@@ -157,10 +157,7 @@ class HomeScreen(Screen):
         await asyncio.sleep(0.15)
         query = self._filter_query.lower().strip()
         if query:
-            filtered = [
-                e for e in self._all_entries
-                if query in e.title.lower()
-            ]
+            filtered = [e for e in self._all_entries if query in e.title.lower()]
             self._filter_active = True
         else:
             filtered = self._all_entries
@@ -180,7 +177,10 @@ class HomeScreen(Screen):
             list_view.append(item)
 
     def _build_item(self, entry: EpisodeEntry) -> Static:
-        ansi = get_image(entry.image, max_width=55) if entry.image else None
+        try:
+            ansi = get_image(entry.image, max_width=55) if entry.image else None
+        except Exception:
+            ansi = None
 
         table = Table.grid(padding=(0, 2))
         table.add_column(width=ansi.width if ansi else 1)
@@ -207,8 +207,11 @@ class HomeScreen(Screen):
 
             urls = [(entry.image, 55) for entry in entries if entry.image]
             if urls:
-                futures = [_IMAGE_EXECUTOR.submit(get_image, url, w) for url, w in urls]
-                await asyncio.gather(*(asyncio.wrap_future(f) for f in futures))
+                try:
+                    futures = [_IMAGE_EXECUTOR.submit(get_image, url, w) for url, w in urls]
+                    await asyncio.gather(*(asyncio.wrap_future(f) for f in futures))
+                except Exception:
+                    pass
 
             self._rebuild_list(entries)
             self.query_one("#loading", LoadingIndicator).display = False
@@ -218,21 +221,18 @@ class HomeScreen(Screen):
         except Exception as e:
             self.query_one("#loading", LoadingIndicator).display = False
             self.query_one("#status", Static).update(f"[red]Erro: {e}[/]")
-            self.query_one("#episodes-list", ListView).append(
-                ListItem(Static(f"[red]{e}[/]"))
-            )
+            self.query_one("#episodes-list", ListView).append(ListItem(Static(f"[red]{e}[/]")))
 
     def _open_episode(self, entry: EpisodeEntry) -> None:
         if len(entry.sources) == 1:
             src = entry.sources[0]
             asyncio.create_task(self._play_source(src, entry))
         elif len(entry.sources) > 1:
+
             def do_open(selected):
                 asyncio.create_task(self._play_source(selected, entry))
 
-            self.app.push_screen(
-                SourceSelectScreen(entry.sources, do_open)
-            )
+            self.app.push_screen(SourceSelectScreen(entry.sources, do_open))
 
     def _record_history(self, entry: EpisodeEntry, src: SourceInfo) -> None:
         if not self._on_watch:
@@ -278,9 +278,7 @@ class HomeScreen(Screen):
         self._set_play_status("[yellow]Preparando vídeo…[/]")
         try:
             self._set_play_status("[yellow]Buscando fonte do vídeo…[/]")
-            play_ctx = await asyncio.to_thread(
-                self._service.get_play_context, src.link, src.name
-            )
+            play_ctx = await asyncio.to_thread(self._service.get_play_context, src.link, src.name)
             if not play_ctx or not play_ctx.url:
                 self._set_play_status("[red]Fonte de vídeo não encontrada[/]")
                 return

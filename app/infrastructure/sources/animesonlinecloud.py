@@ -5,8 +5,6 @@ from __future__ import annotations
 import re
 from urllib.parse import quote
 
-from bs4 import BeautifulSoup
-
 from app.domain import Anime, Episode, PlayContext, Season
 from app.infrastructure.security import is_safe_url
 from app.infrastructure.sources._base import AnimeSource
@@ -68,7 +66,15 @@ class AnimesOnlineCloud(AnimeSource):
             episode_number = extract_episode_number(ep_label, raw_title, episode_link)
             image = img_src(poster)
 
-            retrieved.append(Episode(number=episode_number, title=raw_title, link=episode_link, video_src="", image=image))
+            retrieved.append(
+                Episode(
+                    number=episode_number,
+                    title=raw_title,
+                    link=episode_link,
+                    video_src="",
+                    image=image,
+                )
+            )
         return retrieved
 
     def search_by(self, name: str) -> list[Anime]:
@@ -163,8 +169,17 @@ class AnimesOnlineCloud(AnimeSource):
                     continue
                 seen.add(href)
                 text = a.get_text(strip=True) or href
-                ep_list.append(Episode(number=extract_episode_number(text, href), title=text, link=href, video_src=""))
+                ep_list.append(
+                    Episode(
+                        number=extract_episode_number(text, href),
+                        title=text,
+                        link=href,
+                        video_src="",
+                    )
+                )
             if ep_list:
                 seasons.append(Season(number=1, episodes=ep_list))
 
-        return Anime(title=title, rating="", link=link, image=image, seasons=seasons if seasons else None)
+        return Anime(
+            title=title, rating="", link=link, image=image, seasons=seasons if seasons else None
+        )

@@ -7,10 +7,10 @@ import threading
 from collections import OrderedDict
 from dataclasses import dataclass
 
-from PIL import Image as PILImage, ImageEnhance, ImageFile
-
-from rich.console import Console, ConsoleOptions, RenderResult
+from PIL import Image as PILImage
+from PIL import ImageEnhance, ImageFile
 from rich.color import Color
+from rich.console import Console, ConsoleOptions, RenderResult
 from rich.measure import Measurement
 from rich.style import Style
 from rich.text import Text
@@ -19,7 +19,7 @@ ImageFile.LOAD_TRUNCATED_IMAGES = False
 PILImage.MAX_IMAGE_PIXELS = 25_000_000
 
 _MAX_CACHE_SIZE = 256
-_image_cache: OrderedDict[str, "AnsiImage | None"] = OrderedDict()
+_image_cache: OrderedDict[str, AnsiImage | None] = OrderedDict()
 _cache_lock = threading.Lock()
 
 # Injetados pelo bootstrap via configure()

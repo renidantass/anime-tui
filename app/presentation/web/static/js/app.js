@@ -98,11 +98,11 @@ function bindUi() {
   });
 
   $("#btn-clear-watchlater")?.addEventListener("click", async () => {
-    if (!confirm("Limpar toda a lista de assistir depois?")) return;
+    if (!confirm("Limpar todos os favoritos?")) return;
     const { api } = await import("./api.js");
     try {
       await api.clearWatchLater();
-      toast("Lista limpa");
+      toast("Favoritos limpos");
       const { loadWatchLaterPage } = await import("./views/watchlater.js");
       loadWatchLaterPage();
       const { renderWatchLaterRow } = await import("./views/home.js");

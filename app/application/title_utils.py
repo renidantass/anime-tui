@@ -8,11 +8,7 @@ from urllib.parse import unquote, urlparse
 
 
 def _strip_accents(text: str) -> str:
-    return "".join(
-        c
-        for c in unicodedata.normalize("NFKD", text)
-        if not unicodedata.combining(c)
-    )
+    return "".join(c for c in unicodedata.normalize("NFKD", text) if not unicodedata.combining(c))
 
 
 def _clean_num(raw: str) -> str | None:
@@ -147,7 +143,9 @@ def strip_episode_suffix(text: str, number: str | None = None) -> str:
         for pat in _EP_SUFFIX_RES:
             t = pat.sub("", t).strip()
         if number and not is_unknown_episode_number(number):
-            n = re.escape(str(int(str(number).strip()) if str(number).strip().isdigit() else number))
+            n = re.escape(
+                str(int(str(number).strip()) if str(number).strip().isdigit() else number)
+            )
             t = re.sub(
                 rf"\s*[\-–—:|·•]?\s*(?:epis[oó]dios?|episodes?|eps?\.?|cap\.?)\s*[#.:]?\s*0*{n}\s*$",
                 "",
@@ -257,7 +255,9 @@ def normalize_watch_titles(
     if ep and anime and ep.casefold() == anime.casefold():
         ep = ""
     if not anime:
-        anime = strip_episode_suffix(episode_title, num or None) or (anime_title or episode_title or "Anime")
+        anime = strip_episode_suffix(episode_title, num or None) or (
+            anime_title or episode_title or "Anime"
+        )
         if is_only_episode_label(anime):
             anime = anime_title or "Anime"
 

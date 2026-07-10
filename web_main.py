@@ -3,13 +3,18 @@
 from __future__ import annotations
 
 import argparse
+import logging
 from pathlib import Path
 
 from fastapi.staticfiles import StaticFiles
 from bootstrap import web_lifespan
 from app.presentation.web.server import create_app
+from app.infrastructure.logging_config import configure_logging
 
 STATIC_DIR = Path(__file__).resolve().parent / "app" / "presentation" / "web" / "static"
+
+configure_logging()
+logger = logging.getLogger(__name__)
 
 app = create_app(lifespan=web_lifespan())
 
@@ -27,7 +32,7 @@ def main() -> None:
     import uvicorn
 
     target = "web_main:app" if args.reload else app
-    print(f"\n  Animes Web -> http://{args.host}:{args.port}\n")
+    logger.info("Animes Web -> http://%s:%s", args.host, args.port)
     uvicorn.run(
         target,
         host=args.host,

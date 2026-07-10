@@ -8,4 +8,4 @@ class EpisodeVM:
     link: str
     video_src: str
     date: str
-    image: str = ''
+    image: str = ""

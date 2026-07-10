@@ -432,20 +432,35 @@
 .card-bookmark-btn,
 .card-remove-btn {
   position: absolute;
-  top: 0.4rem;
-  right: 0.4rem;
+  bottom: 0.45rem;
+  left: 0.45rem;
   z-index: 4;
   width: 28px;
   height: 28px;
   border-radius: 50%;
   border: none;
-  background: rgba(6, 9, 18, 0.7);
+  background: rgba(6, 9, 18, 0.75);
   color: var(--muted);
   cursor: pointer;
   display: grid;
   place-items: center;
   backdrop-filter: blur(6px);
   transition: background 0.2s, color 0.2s, transform 0.15s, opacity 0.2s;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+}
+
+.card-bookmark-btn::before,
+.card-remove-btn::before {
+  content: "";
+  position: absolute;
+  inset: -10px;
+  border-radius: 50%;
+}
+
+.card-bookmark-btn:disabled,
+.card-remove-btn:disabled {
+  opacity: 0.4;
+  pointer-events: none;
 }
 
 .card-remove-btn {

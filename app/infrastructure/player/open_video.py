@@ -193,9 +193,7 @@ def open_video(
             _notify(status, "Erro ao abrir navegador")
             return False
 
-        if preferred not in (PLAYER_AUTO, PLAYER_BROWSER) and not is_player_available(
-            preferred
-        ):
+        if preferred not in (PLAYER_AUTO, PLAYER_BROWSER) and not is_player_available(preferred):
             _notify(
                 status,
                 f"{preferred} não encontrado no PATH — tentando fallback…",

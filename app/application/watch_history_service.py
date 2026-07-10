@@ -3,15 +3,15 @@ from __future__ import annotations
 import json
 import os
 import threading
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
-from app.domain.watch_history import WatchHistoryEntry
 from app.application.title_utils import (
     is_unknown_episode_number,
     normalize_watch_titles,
     strip_title_variants,
 )
+from app.domain.watch_history import WatchHistoryEntry
 
 
 class WatchHistoryService:
@@ -19,9 +19,7 @@ class WatchHistoryService:
         self._lock = threading.Lock()
         self._file_path = Path(
             file_path
-            or os.path.join(
-                os.path.expanduser("~"), ".anime-feed-reader", "watch_history.json"
-            )
+            or os.path.join(os.path.expanduser("~"), ".anime-feed-reader", "watch_history.json")
         )
         self._entries: list[WatchHistoryEntry] = []
         self._dirty = False
@@ -63,9 +61,7 @@ class WatchHistoryService:
         try:
             raw = self._file_path.read_text(encoding="utf-8")
             data = json.loads(raw)
-            self._entries = [
-                WatchHistoryEntry.from_dict(e) for e in data.get("entries", [])
-            ]
+            self._entries = [WatchHistoryEntry.from_dict(e) for e in data.get("entries", [])]
         except (json.JSONDecodeError, KeyError, TypeError, ValueError):
             self._entries = []
         # limpa duplicatas legadas (mesmo anime/ep com links de fontes diferentes)
@@ -132,21 +128,18 @@ class WatchHistoryService:
         1) mesmo episode_link
         2) mesmo anime + mesmo nº de episódio (fonte diferente)
         """
-        anime_title, episode_title, episode_number, anime_key, ep_key = (
-            self._normalize_fields(anime_title, episode_title, episode_number)
+        anime_title, episode_title, episode_number, anime_key, ep_key = self._normalize_fields(
+            anime_title, episode_title, episode_number
         )
         link = (episode_link or "").strip()
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         with self._lock:
             entry: WatchHistoryEntry | None = None
             for e in self._entries:
                 e_anime, e_ep, e_link = self._entry_keys(e)
                 same_link = bool(link) and e_link == link
                 same_ep = (
-                    bool(anime_key)
-                    and bool(ep_key)
-                    and e_anime == anime_key
-                    and e_ep == ep_key
+                    bool(anime_key) and bool(ep_key) and e_anime == anime_key and e_ep == ep_key
                 )
                 if same_link or same_ep:
                     e.anime_title = anime_title
@@ -193,7 +186,7 @@ class WatchHistoryService:
         """Atualiza progresso de um episódio já no histórico."""
         if not episode_link:
             return
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         with self._lock:
             for e in self._entries:
                 if e.episode_link == episode_link:
@@ -302,14 +295,14 @@ class WatchHistoryService:
                 for e in entries
             ]
         }
-        # tmp único evita colisão entre saves
         tmp_path = self._file_path.with_name(
             f".{self._file_path.name}.{os.getpid()}.{threading.get_ident()}.tmp"
         )
         try:
-            tmp_path.write_text(
-                json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
-            )
+            tmp_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
             os.replace(tmp_path, self._file_path)
         finally:
-            tmp_path.unlink(missing_ok=True)
+            try:
+                tmp_path.unlink(missing_ok=True)
+            except OSError:
+                pass

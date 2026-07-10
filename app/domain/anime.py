@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+
 from app.domain.season import Season
 
 
@@ -7,6 +8,6 @@ class Anime:
     title: str
     rating: str
     link: str
-    image: str = ''
+    image: str = ""
     description: str | None = None
     seasons: list[Season] | None = None

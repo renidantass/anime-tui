@@ -74,6 +74,8 @@ export function episodeCard(item, { progressRatio } = {}) {
     labels.number && labels.number !== "?"
       ? `<span class="card-ep-corner">${escapeHtml(formatEpLabel(labels.number))}</span>`
       : "";
+  const animeTitle = labels.animeTitle || item.title;
+  const isSaved = state.watchLater.some((w) => w.anime_title === animeTitle);
 
   const el = document.createElement("article");
   el.className = "card" + (hasAudioChoice(item.sources) ? " has-audio-choice" : "");
@@ -82,6 +84,7 @@ export function episodeCard(item, { progressRatio } = {}) {
     <div class="card-poster has-img">
       <img class="card-poster-img" src="${imgSrc}" alt="" loading="lazy" onerror="this.onerror=null; this.src='${PLACEHOLDER_POSTER}';" />
       ${corner}
+      ${bookmarkBtnHtml(isSaved)}
       ${audioChoiceBadge(item.sources, "poster")}
       <div class="card-play">
         <button type="button" class="btn-play-sm" aria-label="Assistir">${playIcon(18)}</button>
@@ -89,13 +92,21 @@ export function episodeCard(item, { progressRatio } = {}) {
       ${progress}
     </div>
     <div class="card-body">
-      <div class="card-title">${escapeHtml(labels.animeTitle || item.title)}</div>
+      <div class="card-title">${escapeHtml(animeTitle)}</div>
       <div class="card-meta">
         ${pillHtml(item.sources)}
       </div>
     </div>
   `;
   el.addEventListener("click", (e) => {
+    if (e.target.closest("[data-action=bookmark]")) {
+      toggleWatchLater({
+        title: animeTitle,
+        image: item.image,
+        sources: item.sources,
+      }, el);
+      return;
+    }
     e.preventDefault();
     import("./play-flow.js").then((m) => m.onEpisodeClick(item));
   });
@@ -121,11 +132,7 @@ export function animeCard(item) {
   el.innerHTML = `
     <div class="card-poster has-img">
       <img class="card-poster-img" src="${imgSrc}" alt="" loading="lazy" onerror="this.onerror=null; this.src='${PLACEHOLDER_POSTER}';" />
-      <button type="button" class="card-bookmark-btn${isSaved ? " is-saved" : ""}" aria-label="${isSaved ? "Remover da lista" : "Assistir depois"}" data-action="bookmark">
-        <svg viewBox="0 0 24 24" width="14" height="14" fill="${isSaved ? "currentColor" : "none"}" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>
-        </svg>
-      </button>
+      ${bookmarkBtnHtml(isSaved)}
       ${audioChoiceBadge(item.sources, "poster")}
       <div class="card-play">
         <button type="button" class="btn-play-sm" aria-label="Abrir">${playIcon(18)}</button>
@@ -157,19 +164,30 @@ export function animeCard(item) {
   return el;
 }
 
+function bookmarkBtnHtml(saved) {
+  return `<button type="button" class="card-bookmark-btn${saved ? " is-saved" : ""}" aria-label="${saved ? "Remover dos favoritos" : "Favoritos"}" title="${saved ? "Remove este anime dos favoritos" : "Salva este anime nos favoritos"}" data-action="bookmark">
+    <svg viewBox="0 0 24 24" width="14" height="14" fill="${saved ? "currentColor" : "none"}" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>
+    </svg>
+  </button>`;
+}
+
 async function toggleWatchLater(item, el) {
   const { api } = await import("./api.js");
   const { toast } = await import("./toast.js");
   const bookmark = el.querySelector(".card-bookmark-btn");
-  const isSaved = bookmark?.classList.contains("is-saved");
+  if (!bookmark || bookmark.disabled) return;
+  const wasSaved = bookmark.classList.contains("is-saved");
+  bookmark.disabled = true;
   try {
-    if (isSaved) {
+    if (wasSaved) {
       await api.removeWatchLater(item.title);
-      bookmark?.classList.remove("is-saved");
-      bookmark?.querySelector("svg")?.setAttribute("fill", "none");
-      bookmark?.setAttribute("aria-label", "Assistir depois");
+      bookmark.classList.remove("is-saved");
+      bookmark.querySelector("svg")?.setAttribute("fill", "none");
+      bookmark.setAttribute("aria-label", "Favoritos");
+      bookmark.setAttribute("title", "Salva este anime nos favoritos");
       state.watchLater = state.watchLater.filter((w) => w.anime_title !== item.title);
-      toast("Removido da lista");
+      toast("Removido dos favoritos");
     } else {
       await api.addWatchLater({
         anime_title: item.title,
@@ -178,9 +196,10 @@ async function toggleWatchLater(item, el) {
         source_link: (item.sources && item.sources[0]?.link) || "",
         source_color: (item.sources && item.sources[0]?.color) || "",
       });
-      bookmark?.classList.add("is-saved");
-      bookmark?.querySelector("svg")?.setAttribute("fill", "currentColor");
-      bookmark?.setAttribute("aria-label", "Remover da lista");
+      bookmark.classList.add("is-saved");
+      bookmark.querySelector("svg")?.setAttribute("fill", "currentColor");
+      bookmark.setAttribute("aria-label", "Remover dos favoritos");
+      bookmark.setAttribute("title", "Remove este anime dos favoritos");
       state.watchLater.push({
         anime_title: item.title,
         anime_image: item.image || "",
@@ -188,10 +207,12 @@ async function toggleWatchLater(item, el) {
         source_link: (item.sources && item.sources[0]?.link) || "",
         source_color: (item.sources && item.sources[0]?.color) || "",
       });
-      toast("Adicionado à lista");
+      toast("Adicionado aos favoritos");
     }
   } catch (e) {
     toast(e.message || "Erro ao salvar", true);
+  } finally {
+    bookmark.disabled = false;
   }
 }
 
@@ -274,7 +295,7 @@ export function watchLaterCard(item) {
   el.innerHTML = `
     <div class="card-poster has-img">
       <img class="card-poster-img" src="${imgSrc}" alt="" loading="lazy" onerror="this.onerror=null; this.src='${PLACEHOLDER_POSTER}';" />
-      <button type="button" class="card-remove-btn" aria-label="Remover da lista" data-action="remove-wl">
+      <button type="button" class="card-remove-btn" aria-label="Remover dos favoritos" title="Remove este anime dos favoritos" data-action="remove-wl">
         <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
       </button>
       <div class="card-play">
@@ -286,8 +307,29 @@ export function watchLaterCard(item) {
       ${item.source_name ? `<div class="card-meta"><span class="source-pill">${escapeHtml(item.source_name)}</span></div>` : ""}
     </div>
   `;
-  el.addEventListener("click", (e) => {
-    if (e.target.closest("[data-action=remove-wl]")) return;
+  el.addEventListener("click", async (e) => {
+    const removeBtn = e.target.closest("[data-action=remove-wl]");
+    if (removeBtn) {
+      if (removeBtn.disabled) return;
+      removeBtn.disabled = true;
+      const { api: _api } = await import("./api.js");
+      const { toast } = await import("./toast.js");
+      try {
+        await _api.removeWatchLater(item.anime_title);
+        state.watchLater = state.watchLater.filter((w) => w.anime_title !== item.anime_title);
+        el.remove();
+        toast("Removido dos favoritos");
+        const scroller = document.getElementById("watchlater-scroller");
+        if (scroller && !scroller.querySelector(".card")) {
+          const row = document.getElementById("row-watchlater");
+          if (row) row.hidden = true;
+        }
+      } catch (err) {
+        toast(err.message || "Erro ao remover", true);
+        removeBtn.disabled = false;
+      }
+      return;
+    }
     import("./play-flow.js").then((m) => m.onAnimeClick({
       title: item.anime_title,
       image: item.anime_image,

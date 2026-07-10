@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from textual.app import ComposeResult
 from textual.screen import Screen
-from textual.widgets import Static, ListView, ListItem
+from textual.widgets import ListItem, ListView, Static
 
 from app.application import SourceInfo
 

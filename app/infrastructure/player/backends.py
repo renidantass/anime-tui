@@ -157,9 +157,7 @@ class MpvBackend(VideoBackend):
 
         ipc_path: str | None = None
         if request.on_position is not None or request.start_at > 1:
-            ipc_path = str(
-                ensure_ipc_dir() / f"mpv-{os.getpid()}-{uuid.uuid4().hex[:8]}.sock"
-            )
+            ipc_path = str(ensure_ipc_dir() / f"mpv-{os.getpid()}-{uuid.uuid4().hex[:8]}.sock")
 
         # --ytdl=no: evita youtube-dl/yt-dlp (403 em CDNs com anti-leech)
         args = [
@@ -349,9 +347,7 @@ class GstreamerBackend(VideoBackend):
     id = "gstreamer"
     label = "GStreamer"
     binary = "gst-launch-1.0"
-    install_hint = (
-        "sudo apt install gstreamer1.0-tools gstreamer1.0-plugins-good"
-    )
+    install_hint = "sudo apt install gstreamer1.0-tools gstreamer1.0-plugins-good"
 
     def is_available(self) -> bool:
         return bool(which("gst-launch-1.0"))

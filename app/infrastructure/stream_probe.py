@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Callable
+from collections.abc import Callable
 
 import requests
 
@@ -23,7 +23,9 @@ def probe_stream(url: str, headers: dict[str, str] | None = None) -> tuple[bool,
         hdrs.update(headers)
     hdrs.setdefault("Range", "bytes=0-2047")
     try:
-        with requests.get(url, headers=hdrs, timeout=(8, 20), stream=True, allow_redirects=True) as r:
+        with requests.get(
+            url, headers=hdrs, timeout=(8, 20), stream=True, allow_redirects=True
+        ) as r:
             if r.status_code not in (200, 206) and not (200 <= r.status_code < 400):
                 return False, f"HTTP {r.status_code}"
             ct = (r.headers.get("Content-Type") or "").lower()
@@ -32,8 +34,14 @@ def probe_stream(url: str, headers: dict[str, str] | None = None) -> tuple[bool,
             chunk = next(r.iter_content(chunk_size=512), b"")
             if not chunk and r.status_code not in (200, 206):
                 return False, "corpo vazio"
-            ok_ct = (not ct or ct.startswith("video/") or "mpegurl" in ct
-                     or "octet-stream" in ct or "binary" in ct or "mp2t" in ct)
+            ok_ct = (
+                not ct
+                or ct.startswith("video/")
+                or "mpegurl" in ct
+                or "octet-stream" in ct
+                or "binary" in ct
+                or "mp2t" in ct
+            )
             if not ok_ct and chunk:
                 if chunk[:4] == b"\x00\x00\x00" or b"ftyp" in chunk[:32]:
                     return True, "ok (mp4 magic)"
@@ -68,6 +76,12 @@ def finalize_with_blogger(
         resolved = resolve_blogger(url, page_url=page, session=None)
     if resolved is None:
         logger.warning("Não foi possível resolver embed Blogger: %s…", url[:80])
-        return PlayContext(url=url, referer=ctx.referer, origin=ctx.origin,
-                           is_direct=False, page_url=page, cache_key=ctx.cache_key or url)
+        return PlayContext(
+            url=url,
+            referer=ctx.referer,
+            origin=ctx.origin,
+            is_direct=False,
+            page_url=page,
+            cache_key=ctx.cache_key or url,
+        )
     return resolved

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from urllib.parse import urlparse
 
 import requests
@@ -14,10 +15,24 @@ logger = logging.getLogger(__name__)
 
 MAX_SIZE_BYTES = 5 * 1024 * 1024
 MIN_SIZE_BYTES = 32
+_IMG_CACHE_TTL = 600.0
+_IMG_CACHE_MAX = 500
+
+_img_cache: dict[str, tuple[float, bytes, str]] = {}
+
+
+def _prune_image_cache() -> None:
+    now = time.monotonic()
+    expired = [k for k, (exp, _, _) in _img_cache.items() if exp <= now]
+    for k in expired:
+        del _img_cache[k]
+    if len(_img_cache) > _IMG_CACHE_MAX:
+        oldest = sorted(_img_cache.items(), key=lambda kv: kv[1][0])[:200]
+        for k, _ in oldest:
+            del _img_cache[k]
 
 
 def derive_referer(image_url: str) -> str:
-    """Deriva Referer do domínio da imagem para evitar bloqueio de hotlink."""
     try:
         p = urlparse(image_url)
         if p.scheme and p.netloc:
@@ -28,7 +43,6 @@ def derive_referer(image_url: str) -> str:
 
 
 def detect_media_type(data: bytes, content_type: str) -> str:
-    """Detecta o media type a partir do Content-Type e magic bytes."""
     if content_type.startswith("image/"):
         return content_type
     if data[:4] == b"RIFF" and b"WEBP" in data[:16]:
@@ -39,7 +53,6 @@ def detect_media_type(data: bytes, content_type: str) -> str:
 
 
 def is_image_data(data: bytes, content_type: str) -> bool:
-    """Valida se os bytes são realmente uma imagem (magic bytes + tipo)."""
     return bool(
         data[:3] == b"\xff\xd8\xff"
         or data[:8] == b"\x89PNG\r\n\x1a\n"
@@ -50,11 +63,6 @@ def is_image_data(data: bytes, content_type: str) -> bool:
 
 
 def validate_image(data: bytes, content_type: str) -> tuple[bool, str, str]:
-    """Valida e detecta tipo da imagem.
-
-    Returns:
-        (ok, media_type, error_message)
-    """
     if len(data) > MAX_SIZE_BYTES:
         return False, "", "Imagem grande demais"
     if len(data) < MIN_SIZE_BYTES:
@@ -77,20 +85,11 @@ def fetch_proxied_image(
     timeout: float = 15,
     session: requests.Session | None = None,
 ) -> tuple[bytes, str]:
-    """Busca e valida uma imagem via proxy.
+    _prune_image_cache()
+    cached = _img_cache.get(url)
+    if cached and cached[0] > time.monotonic():
+        return cached[1], cached[2]
 
-    Args:
-        url: URL da imagem.
-        timeout: Timeout da requisição.
-        session: Session HTTP opcional (reusa conexão).
-
-    Returns:
-        (data, media_type)
-
-    Raises:
-        ValueError: URL inválida ou insegura.
-        RuntimeError: Imagem inválida ou erro de upstream.
-    """
     if not is_safe_url(url, allow_http=True, resolve_dns=True):
         raise ValueError("URL de imagem inválida")
 
@@ -116,4 +115,5 @@ def fetch_proxied_image(
     ok, media, err = validate_image(data, content_type)
     if not ok:
         raise RuntimeError(err)
+    _img_cache[url] = (time.monotonic() + _IMG_CACHE_TTL, data, media)
     return data, media

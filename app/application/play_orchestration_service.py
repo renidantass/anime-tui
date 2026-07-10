@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable
 
 from app.application.anime_service import AnimeService
 from app.application.dtos import PlayCandidate, PlayResult, ResolvedPlay
@@ -91,10 +91,14 @@ class PlayOrchestrationService:
         )
         try:
             self._history.add_entry(
-                anime_title=anime_t, episode_title=ep_t,
-                episode_number=ep_n or "0", episode_link=link,
-                source_name=src_name, anime_image=req.anime_image,
-                season_number=req.season_number, source_color=src_color,
+                anime_title=anime_t,
+                episode_title=ep_t,
+                episode_number=ep_n or "0",
+                episode_link=link,
+                source_name=src_name,
+                anime_image=req.anime_image,
+                season_number=req.season_number,
+                source_color=src_color,
             )
         except Exception:
             logger.exception("Falha ao gravar histórico no play")
@@ -108,21 +112,33 @@ class PlayOrchestrationService:
 
         failed = [t for t in (resolved.tried or []) if not t.get("ok")]
         return PlayResult(
-            playable=playable, stream_url=stream_url,
+            playable=playable,
+            stream_url=stream_url,
             page_url=(ctx.page_url or link) if ctx else link,
             external_url=None if playable else ((ctx.page_url or url) if ctx else None),
-            is_hls=".m3u8" in url.lower(), start_at=progress,
-            token=token, source_name=src_name, source_color=src_color,
-            episode_link=link, switched=bool(failed) and playable,
+            is_hls=".m3u8" in url.lower(),
+            start_at=progress,
+            token=token,
+            source_name=src_name,
+            source_color=src_color,
+            episode_link=link,
+            switched=bool(failed) and playable,
             tried=list(resolved.tried or []),
         )
 
     def _empty_result(self, req: PlayRequest) -> PlayResult:
         return PlayResult(
-            playable=False, stream_url=None, page_url="",
-            external_url=None, is_hls=False, start_at=0.0,
-            token=None, source_name="", source_color="",
-            episode_link=req.episode_link, switched=False,
+            playable=False,
+            stream_url=None,
+            page_url="",
+            external_url=None,
+            is_hls=False,
+            start_at=0.0,
+            token=None,
+            source_name="",
+            source_color="",
+            episode_link=req.episode_link,
+            switched=False,
         )
 
     def _resolve(self, candidates: list[PlayCandidate]) -> ResolvedPlay | None:
@@ -135,5 +151,7 @@ class PlayOrchestrationService:
             return self._anime.get_play_context(link, None)
 
         return self._resolution.resolve_with_fallback(
-            candidates=candidates, get_context=get_context, require_probe=True,
+            candidates=candidates,
+            get_context=get_context,
+            require_probe=True,
         )

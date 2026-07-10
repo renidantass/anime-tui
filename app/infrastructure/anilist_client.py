@@ -343,12 +343,7 @@ class AniListMedia:
 
     @property
     def primary_title(self) -> str:
-        return (
-            self.title_romaji
-            or self.title_english
-            or self.title_native
-            or f"#{self.id}"
-        )
+        return self.title_romaji or self.title_english or self.title_native or f"#{self.id}"
 
     def search_titles(self) -> list[str]:
         """Títulos candidatos para busca nas fontes (ordem de preferência)."""
@@ -437,11 +432,7 @@ def _order_franchise(current: AniListMedia, rels: list[dict]) -> list[dict]:
     """Monta trilha de franquia: prequels → atual → sequels."""
     prequels = [r for r in rels if r.get("relation_type") == "PREQUEL"]
     sequels = [r for r in rels if r.get("relation_type") == "SEQUEL"]
-    others = [
-        r
-        for r in rels
-        if r.get("relation_type") not in {"PREQUEL", "SEQUEL"}
-    ]
+    others = [r for r in rels if r.get("relation_type") not in {"PREQUEL", "SEQUEL"}]
     current_card = {
         "id": current.id,
         "relation_type": "CURRENT",
@@ -559,12 +550,7 @@ def _parse_media(m: dict | None, *, with_relations: bool = False) -> AniListMedi
     studios_raw = ((m.get("studios") or {}).get("nodes")) or []
     studios = [s.get("name") for s in studios_raw if s and s.get("name")]
     next_ep = m.get("nextAiringEpisode") or {}
-    image = (
-        cover.get("extraLarge")
-        or cover.get("large")
-        or cover.get("medium")
-        or ""
-    ).strip()
+    image = (cover.get("extraLarge") or cover.get("large") or cover.get("medium") or "").strip()
 
     episode_thumbs = _parse_streaming_episodes(m.get("streamingEpisodes"))
 
@@ -689,11 +675,7 @@ class AniListClient:
         raw = data.get("GenreCollection") or []
         # Hentai permanece na collection da API; filtramos do catálogo público
         skip = {"hentai"}
-        genres = [
-            g
-            for g in raw
-            if isinstance(g, str) and g.strip() and g.casefold() not in skip
-        ]
+        genres = [g for g in raw if isinstance(g, str) and g.strip() and g.casefold() not in skip]
         self._genres_cache = genres
         self._genres_cached_at = now
         return list(genres)

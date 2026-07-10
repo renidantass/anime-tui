@@ -6,7 +6,7 @@ import logging
 from concurrent.futures import as_completed
 
 from app.application._executor import get_executor
-from app.application.dtos import AnimeEntry, EpisodeEntry, SourceEntry, SourceInfo
+from app.application.dtos import AnimeEntry, EpisodeEntry, SourceEntry
 from app.application.interfaces import ISourceDiscovery
 from app.application.title_matcher import anime_key, append_source, ep_key, titles_are_similar
 from app.application.title_utils import (
@@ -49,7 +49,9 @@ class EpisodeAggregator:
                     number = extract_episode_number(ep.title, ep.link, default="")
                 key = ep_key(ep)
                 if key not in entries:
-                    entries[key] = EpisodeEntry(title=ep.title, image=ep.image, date=ep.date, number=number)
+                    entries[key] = EpisodeEntry(
+                        title=ep.title, image=ep.image, date=ep.date, number=number
+                    )
                 else:
                     existing = entries[key]
                     if is_unknown_episode_number(existing.number) and number:
@@ -59,8 +61,14 @@ class EpisodeAggregator:
                         existing.image = ep.image
                     if not existing.date and ep.date:
                         existing.date = ep.date
-                append_source(entries[key].sources, name=name, video_src=ep.video_src,
-                              link=ep.link, color=entry.color, title=ep.title)
+                append_source(
+                    entries[key].sources,
+                    name=name,
+                    video_src=ep.video_src,
+                    link=ep.link,
+                    color=entry.color,
+                    title=ep.title,
+                )
 
         # ── Fuzzy merge: group entries with similar anime title + same episode number ──
         if len(entries) > 1:
@@ -86,8 +94,14 @@ class EpisodeAggregator:
                         if not ea.date and eb.date:
                             ea.date = eb.date
                         for src in eb.sources:
-                            append_source(ea.sources, name=src.name, video_src=src.video_src,
-                                          link=src.link, color=src.color, title=src.title)
+                            append_source(
+                                ea.sources,
+                                name=src.name,
+                                video_src=src.video_src,
+                                link=src.link,
+                                color=src.color,
+                                title=src.title,
+                            )
                 result[ka] = ea
             entries = result
 
@@ -115,7 +129,9 @@ class EpisodeAggregator:
             for anime in animes:
                 key = anime_key(anime)
                 if key not in entries:
-                    entries[key] = AnimeEntry(title=anime.title, rating=anime.rating, image=anime.image)
+                    entries[key] = AnimeEntry(
+                        title=anime.title, rating=anime.rating, image=anime.image
+                    )
                 else:
                     existing = entries[key]
                     existing.title = prefer_display_title(existing.title, anime.title)
@@ -123,6 +139,12 @@ class EpisodeAggregator:
                         existing.image = anime.image
                     if not existing.rating and anime.rating:
                         existing.rating = anime.rating
-                append_source(entries[key].sources, name=source_name, video_src="",
-                              link=anime.link, color=entry.color, title=anime.title)
+                append_source(
+                    entries[key].sources,
+                    name=source_name,
+                    video_src="",
+                    link=anime.link,
+                    color=entry.color,
+                    title=anime.title,
+                )
         return list(entries.values())

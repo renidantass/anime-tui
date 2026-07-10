@@ -15,7 +15,6 @@ from app.application.title_utils import (  # noqa: F401 — re-export
     strip_title_variants,
     title_has_variant_noise,
 )
-
 from app.infrastructure.sources._base import HEADERS, validate_response  # noqa: F401 — re-export
 
 

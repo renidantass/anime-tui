@@ -11,7 +11,7 @@ from app.domain.watch_later import WatchLaterEntry
 
 class WatchLaterService:
     def __init__(self, file_path: str | None = None):
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self._file_path = Path(
             file_path
             or os.path.join(os.path.expanduser("~"), ".anime-feed-reader", "watch_later.json")

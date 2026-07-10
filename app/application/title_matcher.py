@@ -4,15 +4,14 @@ import difflib
 import re
 import unicodedata
 
+from app.application.dtos import SourceInfo
 from app.application.title_utils import (
     detect_audio_variant,
     extract_episode_number,
     is_unknown_episode_number,
     normalize_watch_titles,
-    prefer_display_title,
     strip_title_variants,
 )
-from app.application.dtos import SourceInfo
 
 
 def normalize_text(text: str) -> str:
@@ -44,8 +43,9 @@ def anime_key(anime) -> str:
     return catalog_key(getattr(anime, "title", "") or "")
 
 
-def append_source(bucket: list[SourceInfo], *, name: str, video_src: str,
-                  link: str, color: str, title: str = "") -> None:
+def append_source(
+    bucket: list[SourceInfo], *, name: str, video_src: str, link: str, color: str, title: str = ""
+) -> None:
     link = (link or "").strip()
     variant = detect_audio_variant(title, link)
     for s in bucket:
@@ -53,17 +53,25 @@ def append_source(bucket: list[SourceInfo], *, name: str, video_src: str,
             return
         if s.name == name and (s.variant or "original") == variant:
             return
-    bucket.append(SourceInfo(name=name, video_src=video_src or "", link=link,
-                             color=color or "", variant=variant, title=title or ""))
+    bucket.append(
+        SourceInfo(
+            name=name,
+            video_src=video_src or "",
+            link=link,
+            color=color or "",
+            variant=variant,
+            title=title or "",
+        )
+    )
 
 
-def best_title_score(source_title: str, anilist_keys: set[str],
-                     anilist_titles: list[str]) -> float:
+def best_title_score(source_title: str, anilist_keys: set[str], anilist_titles: list[str]) -> float:
     sk = normalize_text(source_title)
     if not sk:
         return 0.0
-    sk_clean = re.sub(r"\b(dublado|legendado|audiodescrito|ova|ona|movie|filme|special|especiais?)\b",
-                      " ", sk)
+    sk_clean = re.sub(
+        r"\b(dublado|legendado|audiodescrito|ova|ona|movie|filme|special|especiais?)\b", " ", sk
+    )
     sk_clean = re.sub(r"\s+", " ", sk_clean).strip()
     best = 0.0
     for ak in anilist_keys:
@@ -72,25 +80,28 @@ def best_title_score(source_title: str, anilist_keys: set[str],
         if sk == ak or sk_clean == ak:
             return 1.0
         if sk_clean.startswith(ak + " ") or sk.startswith(ak + " "):
-            best = max(best, 0.92); continue
+            best = max(best, 0.92)
+            continue
         if sk_clean.startswith(ak) and len(sk_clean) - len(ak) <= 4:
-            best = max(best, 0.88); continue
+            best = max(best, 0.88)
+            continue
         if ak.startswith(sk_clean) and len(sk_clean) >= 10:
             ratio = len(sk_clean) / max(len(ak), 1)
             if ratio >= 0.75:
                 best = max(best, 0.8 * ratio)
         sim = _title_similarity(sk_clean, ak)
         extra = max(0, len(sk_clean.split()) - len(ak.split()))
-        if extra >= 2: sim *= 0.55
-        elif extra == 1: sim *= 0.85
+        if extra >= 2:
+            sim *= 0.55
+        elif extra == 1:
+            sim *= 0.85
         best = max(best, sim)
     for t in anilist_titles:
         best = max(best, _title_similarity(sk_clean, normalize_text(t)))
     return best
 
 
-def titles_match(source_title: str, anilist_keys: set[str],
-                 anilist_titles: list[str]) -> bool:
+def titles_match(source_title: str, anilist_keys: set[str], anilist_titles: list[str]) -> bool:
     return best_title_score(source_title, anilist_keys, anilist_titles) >= 0.62
 
 

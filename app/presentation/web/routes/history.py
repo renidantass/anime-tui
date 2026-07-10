@@ -21,6 +21,7 @@ def get_history_list(
         description="anime = 1 card por anime; episode = 1 por episódio; all = bruto",
     ),
 ):
+    """Lista histórico: anime (1 por anime), episode (1 por episódio), all (bruto)."""
     hs = state.history
     mode = (mode or "anime").strip().lower()
     if mode == "all":
@@ -34,6 +35,7 @@ def get_history_list(
 
 @router.post("")
 def add_history(state: AppState, body: HistoryAddRequest):
+    """Adiciona ou atualiza uma entrada no histórico de visualização."""
     anime_t, ep_t, ep_n = normalize_watch_titles(
         body.anime_title, body.episode_title, body.episode_number
     )
@@ -54,13 +56,13 @@ def add_history(state: AppState, body: HistoryAddRequest):
 
 @router.post("/progress")
 def update_progress(state: AppState, body: ProgressRequest):
-    state.history.update_progress(
-        body.episode_link, body.progress_seconds, body.duration_seconds
-    )
+    """Atualiza o progresso de reprodução (segundos/duration) de um episódio."""
+    state.history.update_progress(body.episode_link, body.progress_seconds, body.duration_seconds)
     return {"ok": True}
 
 
 @router.delete("")
 def clear_history(state: AppState):
+    """Limpa todo o histórico de visualização."""
     state.history.clear_all()
     return {"ok": True}

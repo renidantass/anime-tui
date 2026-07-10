@@ -97,7 +97,7 @@ export async function onRoute() {
   if (path === "watchlater") {
     state.route = "watchlater";
     setActiveNav("watchlater");
-    setTopbar("", "Assistir Depois");
+    setTopbar("", "Favoritos");
     showView("view-watchlater");
     const { loadWatchLaterPage } = await import("./views/watchlater.js");
     await loadWatchLaterPage();

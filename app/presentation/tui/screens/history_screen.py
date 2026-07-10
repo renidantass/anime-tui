@@ -1,25 +1,25 @@
 import asyncio
-from datetime import datetime, timezone
-from typing import Callable
+from collections.abc import Callable
+from datetime import UTC, datetime
 
 from rich.table import Table
 from rich.text import Text
 from textual.app import ComposeResult
 from textual.screen import Screen
-from textual.widgets import Header, Footer, Static, ListView, ListItem, LoadingIndicator
+from textual.widgets import Footer, Header, ListItem, ListView, LoadingIndicator, Static
 
 from app.application.anime_service import AnimeService
-from app.presentation.tui.view_models.history_vm import HistoryVM
 from app.presentation.tui.utils.badge import badge_tag
 from app.presentation.tui.utils.image_cache import get_image
+from app.presentation.tui.view_models.history_vm import HistoryVM
 
 
 def _relative_time(iso_str: str) -> str:
     try:
         dt = datetime.fromisoformat(iso_str)
         if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        now = datetime.now(timezone.utc)
+            dt = dt.replace(tzinfo=UTC)
+        now = datetime.now(UTC)
         diff = now - dt
         seconds = int(diff.total_seconds())
         if seconds < 60:
@@ -47,7 +47,6 @@ def _relative_time(iso_str: str) -> str:
 
 
 class HistoryScreen(Screen):
-
     BINDINGS = [
         ("escape", "back", "Voltar"),
         ("r", "refresh", "Atualizar"),
@@ -122,9 +121,7 @@ class HistoryScreen(Screen):
         except Exception as e:
             self.query_one("#loading", LoadingIndicator).display = False
             self.query_one("#status", Static).update(f"[red]Erro: {e}[/]")
-            self.query_one("#history-list", ListView).append(
-                ListItem(Static(f"[red]{e}[/]"))
-            )
+            self.query_one("#history-list", ListView).append(ListItem(Static(f"[red]{e}[/]")))
 
     async def _do_clear(self) -> None:
         try:

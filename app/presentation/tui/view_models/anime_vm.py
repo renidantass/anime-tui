@@ -8,6 +8,6 @@ class AnimeVM:
     title: str
     rating: str
     link: str
-    image: str = ''
+    image: str = ""
     description: str | None = None
     seasons: list[SeasonVM] | None = None

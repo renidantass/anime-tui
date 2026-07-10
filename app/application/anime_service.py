@@ -15,23 +15,33 @@ from app.application.dtos import (
     EpisodeItem,
     SeasonDetail,
     SourceEntry,
-    SourceInfo,
 )
 from app.application.episode_aggregator import EpisodeAggregator
 from app.application.interfaces import ISourceDiscovery
+from app.application.interfaces.ianilist_client import IAniListClient
 from app.domain import Anime, Episode, PlayContext
 
 logger = logging.getLogger(__name__)
 
 
 def _episode_to_item(ep: Episode) -> EpisodeItem:
-    return EpisodeItem(number=ep.number, title=ep.title, link=ep.link,
-                       video_src=ep.video_src, image=ep.image, date=ep.date)
+    return EpisodeItem(
+        number=ep.number,
+        title=ep.title,
+        link=ep.link,
+        video_src=ep.video_src,
+        image=ep.image,
+        date=ep.date,
+    )
 
 
 class AnimeService:
-    def __init__(self, source_discovery: ISourceDiscovery, anilist: IAniListClient | None = None,
-                 genre_labels: dict | None = None):
+    def __init__(
+        self,
+        source_discovery: ISourceDiscovery,
+        anilist: IAniListClient | None = None,
+        genre_labels: dict | None = None,
+    ):
         self._sd = source_discovery
         self._enabled: set[str] = set()
         self._anilist = anilist
@@ -39,8 +49,10 @@ class AnimeService:
         self._aggregator = EpisodeAggregator(source_discovery, self._get_enabled_list)
         self._resolver = CatalogResolver(source_discovery, self._get_enabled_list)
         self._catalog = CatalogService(
-            external_api=anilist, genre_labels=self._genre_labels,
-            sd=source_discovery, get_enabled_list=self._get_enabled_list,
+            external_api=anilist,
+            genre_labels=self._genre_labels,
+            sd=source_discovery,
+            get_enabled_list=self._get_enabled_list,
             catalog_resolver=self._resolver,
         )
 
@@ -51,8 +63,10 @@ class AnimeService:
         self._enabled = {e.identifier for e in self._sd.get_all_entries()}
 
     def set_enabled(self, identifier: str, enabled: bool):
-        if enabled: self._enabled.add(identifier)
-        else: self._enabled.discard(identifier)
+        if enabled:
+            self._enabled.add(identifier)
+        else:
+            self._enabled.discard(identifier)
 
     def is_enabled(self, identifier: str) -> bool:
         return identifier in self._enabled
@@ -73,8 +87,9 @@ class AnimeService:
         return self.get_all_source_entries()
 
     def _get_enabled_list(self) -> list[SourceEntry]:
-        return [e for e in self._sd.get_all_entries()
-                if e.identifier in self._enabled and e.available]
+        return [
+            e for e in self._sd.get_all_entries() if e.identifier in self._enabled and e.available
+        ]
 
     # ── Episodes / Search ───────────────────────────────────────────────────
 
@@ -98,13 +113,17 @@ class AnimeService:
     def get_release_calendar(self, *, days: int = 7, check_sources: bool = False) -> dict:
         return self._catalog.get_release_calendar(days=days, check_sources=check_sources)
 
-    def resolve_catalog_items(self, items: list[dict], *, timeout: float = 14.0) -> list[AnimeEntry]:
+    def resolve_catalog_items(
+        self, items: list[dict], *, timeout: float = 14.0
+    ) -> list[AnimeEntry]:
         return self._resolver.resolve(items, timeout=timeout)
 
-    def browse_by_genre(self, genre: str, *, page: int = 1, per_page: int = 12,
-                        max_candidates: int = 16) -> dict:
-        return self._catalog.browse_by_genre(genre, page=page, per_page=per_page,
-                                              max_candidates=max_candidates)
+    def browse_by_genre(
+        self, genre: str, *, page: int = 1, per_page: int = 12, max_candidates: int = 16
+    ) -> dict:
+        return self._catalog.browse_by_genre(
+            genre, page=page, per_page=per_page, max_candidates=max_candidates
+        )
 
     # ── Anime details ───────────────────────────────────────────────────────
 
@@ -114,10 +133,17 @@ class AnimeService:
             return AnimeDetail(title="", rating="", link=link)
 
         link_l = (link or "").lower()
-        ordered = sorted(sources, key=lambda e: (
-            0 if e.base_url and e.base_url.replace("https://", "").replace("http://", "").split("/")[0].lower() in link_l else 1,
-            e.name,
-        ))
+        ordered = sorted(
+            sources,
+            key=lambda e: (
+                0
+                if e.base_url
+                and e.base_url.replace("https://", "").replace("http://", "").split("/")[0].lower()
+                in link_l
+                else 1,
+                e.name,
+            ),
+        )
 
         def fetch(entry: SourceEntry) -> Anime | None:
             try:
@@ -128,7 +154,11 @@ class AnimeService:
                 return None
 
         owner = ordered[0] if ordered else None
-        if owner and owner.base_url and owner.base_url.split("//")[-1].split("/")[0].lower() in link_l:
+        if (
+            owner
+            and owner.base_url
+            and owner.base_url.split("//")[-1].split("/")[0].lower() in link_l
+        ):
             result = fetch(owner)
             if result and result.title:
                 return self._anime_to_detail(result)
@@ -150,14 +180,24 @@ class AnimeService:
     def _anime_to_detail(anime: Anime) -> AnimeDetail:
         seasons: list[SeasonDetail] | None = None
         if anime.seasons:
-            seasons = [SeasonDetail(number=s.number, episodes=[_episode_to_item(ep) for ep in s.episodes])
-                       for s in anime.seasons]
-        return AnimeDetail(title=anime.title, rating=anime.rating, link=anime.link,
-                           image=anime.image, description=anime.description, seasons=seasons)
+            seasons = [
+                SeasonDetail(number=s.number, episodes=[_episode_to_item(ep) for ep in s.episodes])
+                for s in anime.seasons
+            ]
+        return AnimeDetail(
+            title=anime.title,
+            rating=anime.rating,
+            link=anime.link,
+            image=anime.image,
+            description=anime.description,
+            seasons=seasons,
+        )
 
     # ── Playback ────────────────────────────────────────────────────────────
 
-    def get_play_context_from_source(self, episode_link: str, source_name: str) -> PlayContext | None:
+    def get_play_context_from_source(
+        self, episode_link: str, source_name: str
+    ) -> PlayContext | None:
         if not episode_link or not source_name:
             return None
         for e in self._get_enabled_list():
@@ -174,7 +214,9 @@ class AnimeService:
                 return None
         return None
 
-    def get_play_context(self, episode_link: str, preferred_source: str | None = None) -> PlayContext | None:
+    def get_play_context(
+        self, episode_link: str, preferred_source: str | None = None
+    ) -> PlayContext | None:
         sources = self._get_enabled_list()
         if not sources:
             return None

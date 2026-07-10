@@ -7,7 +7,7 @@ heurísticas genéricas de URL/label (1080p, 720p, HD…).
 from __future__ import annotations
 
 import re
-from typing import Iterable
+from collections.abc import Iterable
 from urllib.parse import parse_qs, unquote, urlparse
 
 # Progressive (áudio+vídeo) — preferidos no <video>/mpv simples
@@ -48,7 +48,7 @@ _ITAG_DASH_VIDEO: dict[int, int] = {
     266: 2160,
     271: 1440,
     278: 144,
-    298: 720,   # 60fps
+    298: 720,  # 60fps
     299: 1080,
     302: 720,
     303: 1080,
@@ -63,7 +63,7 @@ _ITAG_DASH_VIDEO: dict[int, int] = {
     335: 1080,
     336: 1440,
     337: 2160,
-    394: 144,   # AV1
+    394: 144,  # AV1
     395: 240,
     396: 360,
     397: 480,

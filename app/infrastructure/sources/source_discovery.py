@@ -5,13 +5,16 @@ import logging
 import pkgutil
 import threading
 import time
-from datetime import datetime, timezone
+from collections.abc import Callable
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 import requests
 
 from app.application.dtos import SourceEntry
 from app.application.interfaces import ISourceDiscovery
+from app.infrastructure.circuit_breaker import CircuitBreaker
+from app.infrastructure.config import Config
 from app.infrastructure.sources._base import AnimeSource
 from app.infrastructure.sources._utils import HEADERS
 
@@ -20,18 +23,23 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_RECENT_WINDOW = 40  # amostras para uptime da janela
+_RECENT_WINDOW = 40
 _CHECK_TIMEOUT = 8
+_HEALTH_LOG_COOLDOWN = 300
 
 
 class SourceDiscovery(ISourceDiscovery):
-    def __init__(self):
+    def __init__(self, config: Config | None = None):
         self._sources: dict[str, SourceEntry] = {}
         self._readers: dict[str, IAnimeFeedReader] = {}
         self._lock = threading.Lock()
         self._bg_done = False
         self._discovered = False
         self._checking = False
+        self._config = config or Config()
+        self._cb = CircuitBreaker()
+        self._health_alerted: dict[str, float] = {}
+        self._on_health_change: Callable[[str, str, bool], None] | None = None
 
     def discover(self) -> dict[str, SourceEntry]:
         if self._discovered:
@@ -68,6 +76,10 @@ class SourceDiscovery(ISourceDiscovery):
                         logger.warning("Falha ao instanciar %s: %s", attr_name, e)
                         continue
 
+                    cfg_url = self._config.get_source_url(instance.identifier)
+                    if cfg_url:
+                        instance.base_url = cfg_url.rstrip("/")
+
                     with self._lock:
                         self._sources[instance.identifier] = SourceEntry(
                             name=instance.name,
@@ -75,7 +87,7 @@ class SourceDiscovery(ISourceDiscovery):
                             color=instance.color,
                             has_search=instance.has_search,
                             has_details=instance.has_details,
-                            base_url=getattr(instance, "base_url", "") or "",
+                            base_url=instance.base_url,
                         )
                         self._readers[instance.identifier] = instance
 
@@ -142,8 +154,13 @@ class SourceDiscovery(ISourceDiscovery):
                 entry.error = "sem base_url"
                 entry.status = "offline"
                 entry.latency_ms = None
-                entry.last_check_at = datetime.now(timezone.utc).isoformat()
+                entry.last_check_at = datetime.now(UTC).isoformat()
                 self._record_result(entry, False)
+            return
+
+        if not self._cb.allow(identifier):
+            entry.status = "circuit_open"
+            entry.error = "circuit breaker"
             return
 
         ok = False
@@ -169,13 +186,22 @@ class SourceDiscovery(ISourceDiscovery):
             latency = (time.perf_counter() - t0) * 1000.0
             err = type(e).__name__
 
+        if ok:
+            self._cb.record_success(identifier)
+        else:
+            self._cb.record_failure(identifier)
+
         with self._lock:
+            was_available = entry.available
             entry.available = ok
             entry.error = "" if ok else err
             entry.latency_ms = round(latency, 1) if latency is not None else None
-            entry.last_check_at = datetime.now(timezone.utc).isoformat()
+            entry.last_check_at = datetime.now(UTC).isoformat()
             entry.status = "online" if ok else "offline"
             self._record_result(entry, ok)
+
+        if was_available != ok:
+            self._maybe_alert(identifier, entry.name, ok)
 
     @staticmethod
     def _record_result(entry: SourceEntry, ok: bool) -> None:
@@ -190,9 +216,7 @@ class SourceDiscovery(ISourceDiscovery):
         if recent:
             entry.uptime_percent = round(100.0 * sum(1 for x in recent if x) / len(recent), 1)
         elif entry.checks_total > 0:
-            entry.uptime_percent = round(
-                100.0 * entry.checks_ok / entry.checks_total, 1
-            )
+            entry.uptime_percent = round(100.0 * entry.checks_ok / entry.checks_total, 1)
         else:
             entry.uptime_percent = None
 
@@ -218,3 +242,38 @@ class SourceDiscovery(ISourceDiscovery):
     def health_ready(self) -> bool:
         return self._bg_done
 
+    @property
+    def circuit_breaker(self) -> CircuitBreaker:
+        return self._cb
+
+    def set_health_callback(self, cb: Callable[[str, str, bool], None] | None) -> None:
+        self._on_health_change = cb
+
+    def allow_request(self, identifier: str) -> bool:
+        return self._cb.allow(identifier)
+
+    def record_source_success(self, identifier: str) -> None:
+        self._cb.record_success(identifier)
+
+    def record_source_failure(self, identifier: str) -> None:
+        self._cb.record_failure(identifier)
+
+    def is_circuit_open(self, identifier: str) -> bool:
+        return self._cb.is_open(identifier)
+
+    def circuit_state(self, identifier: str) -> str:
+        return self._cb.state(identifier)
+
+    def _maybe_alert(self, identifier: str, name: str, is_online: bool) -> None:
+        now = time.monotonic()
+        last = self._health_alerted.get(identifier, 0)
+        if is_online and last:
+            logger.info("Fonte %s voltou ao ar", name)
+            self._health_alerted.pop(identifier, None)
+            if self._on_health_change:
+                self._on_health_change(identifier, name, True)
+        elif not is_online and now - last > _HEALTH_LOG_COOLDOWN:
+            logger.warning("Fonte OFFLINE: %s", name)
+            self._health_alerted[identifier] = now
+            if self._on_health_change:
+                self._on_health_change(identifier, name, False)

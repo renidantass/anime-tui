@@ -19,8 +19,7 @@ from app.infrastructure.stream_quality import media_url_rank
 logger = logging.getLogger(__name__)
 
 _PLAYER_OPTION_SEL = (
-    "li.dooplay_player_option, .dooplay_player_option, "
-    "ul.playeroptionsul li, #playeroptionsul li"
+    "li.dooplay_player_option, .dooplay_player_option, ul.playeroptionsul li, #playeroptionsul li"
 )
 
 
@@ -178,9 +177,7 @@ def resolve_dooplay_play_context(
                 if src and is_safe_url(src, allow_http=True, resolve_dns=False):
                     ctx = _embed_to_context(src, episode_link, base_url)
                     if ctx and ctx.url:
-                        candidates.append(
-                            (option_quality_rank("embed", ctx.url), ctx)
-                        )
+                        candidates.append((option_quality_rank("embed", ctx.url), ctx))
 
         # 2) opções ajax
         for opt in fetch_player_options(soup):

@@ -13,22 +13,35 @@ def _require_known_source(svc, identifier: str) -> None:
         raise HTTPException(404, "Fonte desconhecida")
 
 
+def _get_circuit_state(svc, identifier: str) -> str:
+    sd = getattr(svc, "_sd", None)
+    if sd and hasattr(sd, "circuit_state"):
+        return sd.circuit_state(identifier)
+    return ""
+
+
 @router.get("")
 def list_sources(state: AppState):
+    sd = getattr(state.service, "_sd", None)
     items = [
         ser.source_entry(e, state.service.is_enabled(e.identifier))
         for e in state.service.get_all_source_entries()
     ]
+    if sd and hasattr(sd, "circuit_state"):
+        for item in items:
+            item["circuit"] = sd.circuit_state(item["identifier"])
     return {"items": items}
 
 
 @router.post("/health")
 def refresh_sources_health(state: AppState):
     entries = state.service.refresh_source_health()
+    items = [ser.source_entry(e, state.service.is_enabled(e.identifier)) for e in entries if e]
     return {
-        "items": [
-            ser.source_entry(e, state.service.is_enabled(e.identifier)) for e in entries if e
-        ]
+        "items": items,
+        "circuits": {
+            e["identifier"]: _get_circuit_state(state.service, e["identifier"]) for e in items
+        },
     }
 
 
@@ -39,7 +52,19 @@ def refresh_one_source_health(state: AppState, identifier: str):
     if not entries or not entries[0]:
         raise HTTPException(404, "Fonte não encontrada")
     e = entries[0]
-    return ser.source_entry(e, state.service.is_enabled(e.identifier))
+    result = ser.source_entry(e, state.service.is_enabled(e.identifier))
+    result["circuit"] = _get_circuit_state(state.service, identifier)
+    return result
+
+
+@router.post("/{identifier}/circuit-reset")
+def reset_circuit(state: AppState, identifier: str):
+    _require_known_source(state.service, identifier)
+    sd = getattr(state.service, "_sd", None)
+    if sd and hasattr(sd, "circuit_breaker"):
+        sd.circuit_breaker.reset(identifier)
+        return {"identifier": identifier, "circuit": "reset"}
+    raise HTTPException(501, "Circuit breaker não disponível")
 
 
 @router.put("/{identifier}")

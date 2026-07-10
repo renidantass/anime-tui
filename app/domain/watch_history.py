@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field, fields
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 
 @dataclass(slots=True)
@@ -10,9 +10,7 @@ class WatchHistoryEntry:
     episode_link: str
     source_name: str
     anime_image: str = ""
-    watched_at: str = field(
-        default_factory=lambda: datetime.now(timezone.utc).isoformat()
-    )
+    watched_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
     season_number: int = 1
     source_color: str = ""
     # Progresso de reprodução (segundos)

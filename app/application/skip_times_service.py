@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 
 class SkipTimesService:
@@ -12,8 +13,11 @@ class SkipTimesService:
         self._fetch = fetch
 
     def get_skip_times(
-        self, mal_id: int, episode: int,
-        episode_length: float = 0, types: list[str] | None = None,
+        self,
+        mal_id: int,
+        episode: int,
+        episode_length: float = 0,
+        types: list[str] | None = None,
     ) -> dict[str, Any]:
         type_list = list(types) if types else ["op"]
         if not type_list:
@@ -39,7 +43,9 @@ class SkipTimesService:
             last_payload = response
 
         return {
-            "found": False, "mal_id": mal_id, "episode": episode,
+            "found": False,
+            "mal_id": mal_id,
+            "episode": episode,
             "results": [],
             "message": (last_payload or {}).get("message") or "No skip times found",
         }
@@ -49,6 +55,7 @@ class SkipTimesService:
         lengths: list[float] = [0.0]
         if episode_length and episode_length > 60:
             d = float(episode_length)
-            lengths.extend([d, round(d), round(d) - 1, round(d) + 1,
-                            round(d / 10) * 10, round(d / 60) * 60])
+            lengths.extend(
+                [d, round(d), round(d) - 1, round(d) + 1, round(d / 10) * 10, round(d / 60) * 60]
+            )
         return lengths

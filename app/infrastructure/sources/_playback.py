@@ -18,12 +18,7 @@ BLOGGER_ORIGIN = "https://www.blogger.com"
 def looks_like_media_url(url: str) -> bool:
     """Heurística genérica de mídia (extensão/mime), não de site."""
     low = (url or "").lower()
-    return (
-        ".mp4" in low
-        or ".m3u8" in low
-        or "mime=video" in low
-        or "googlevideo.com" in low
-    )
+    return ".mp4" in low or ".m3u8" in low or "mime=video" in low or "googlevideo.com" in low
 
 
 def resolve_blogger_context(
@@ -71,9 +66,7 @@ def context_from_embed(
     """
     if is_blogger_url(embed_url):
         if resolve_now:
-            blogger = resolve_blogger_context(
-                embed_url, page_url=page_url, session=session
-            )
+            blogger = resolve_blogger_context(embed_url, page_url=page_url, session=session)
             if blogger is not None:
                 return blogger
         # Embed Blogger: headers corretos; open_video resolve o stream

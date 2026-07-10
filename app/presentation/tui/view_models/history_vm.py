@@ -46,8 +46,7 @@ class HistoryVM:
         if self.duration_seconds and self.duration_seconds > 0:
             pct = min(100, int(self.progress_seconds * 100 / self.duration_seconds))
             return (
-                f"{pct}% · {_fmt_time(self.progress_seconds)}"
-                f" / {_fmt_time(self.duration_seconds)}"
+                f"{pct}% · {_fmt_time(self.progress_seconds)} / {_fmt_time(self.duration_seconds)}"
             )
         if self.progress_seconds and self.progress_seconds > 0:
             return f"em {_fmt_time(self.progress_seconds)}"

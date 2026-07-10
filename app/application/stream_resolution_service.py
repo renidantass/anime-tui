@@ -6,7 +6,7 @@ Recebe funções de IO (probe, finalize) via injeção.
 from __future__ import annotations
 
 import logging
-from typing import Callable
+from collections.abc import Callable
 
 from app.application.constants import HEADERS
 from app.application.dtos import PlayCandidate, ResolvedPlay
@@ -40,8 +40,12 @@ class StreamResolutionService:
         return headers
 
     def order_candidates(
-        self, *, candidates: list[PlayCandidate],
-        preferred_source: str | None, episode_link: str, source_color: str = "",
+        self,
+        *,
+        candidates: list[PlayCandidate],
+        preferred_source: str | None,
+        episode_link: str,
+        source_color: str = "",
     ) -> list[PlayCandidate]:
         ordered: list[PlayCandidate] = []
         seen_links: set[str] = set()
@@ -68,7 +72,9 @@ class StreamResolutionService:
         return ordered
 
     def resolve_with_fallback(
-        self, *, candidates: list[PlayCandidate],
+        self,
+        *,
+        candidates: list[PlayCandidate],
         get_context: Callable[[str, str | None], PlayContext | None],
         require_probe: bool = True,
     ) -> ResolvedPlay | None:
@@ -84,42 +90,79 @@ class StreamResolutionService:
                 tried.append({"name": name, "link": link, "ok": False, "reason": str(e)[:120]})
                 continue
             if not ctx or not (ctx.url or "").strip():
-                tried.append({"name": name, "link": link, "ok": False, "reason": "sem play_context"})
+                tried.append(
+                    {"name": name, "link": link, "ok": False, "reason": "sem play_context"}
+                )
                 continue
             try:
                 ctx = self.finalize_play_context(ctx)
             except Exception as e:
-                tried.append({"name": name, "link": link, "ok": False, "reason": f"finalize: {e}"[:120]})
+                tried.append(
+                    {"name": name, "link": link, "ok": False, "reason": f"finalize: {e}"[:120]}
+                )
                 continue
             url = (ctx.url or "").strip()
             if not url:
                 tried.append({"name": name, "link": link, "ok": False, "reason": "URL vazia"})
                 continue
             if not (bool(ctx.is_direct) and is_safe_url(url, allow_http=True)):
-                tried.append({"name": name, "link": link, "ok": False, "reason": "stream não é direto", "playable": False})
+                tried.append(
+                    {
+                        "name": name,
+                        "link": link,
+                        "ok": False,
+                        "reason": "stream não é direto",
+                        "playable": False,
+                    }
+                )
                 if page_fallback is None:
-                    page_fallback = ResolvedPlay(ctx=ctx, link=link, source_name=name,
-                                                  source_color=cand.color, playable=False, tried=list(tried))
+                    page_fallback = ResolvedPlay(
+                        ctx=ctx,
+                        link=link,
+                        source_name=name,
+                        source_color=cand.color,
+                        playable=False,
+                        tried=list(tried),
+                    )
                 continue
             headers = self.build_upstream_headers(ctx)
             if require_probe and self._probe:
                 ok, reason = self._probe(url, headers)
                 if not ok:
                     logger.info("Probe falhou para %s: %s", name, reason)
-                    tried.append({"name": name, "link": link, "ok": False, "reason": f"probe: {reason}", "playable": False})
+                    tried.append(
+                        {
+                            "name": name,
+                            "link": link,
+                            "ok": False,
+                            "reason": f"probe: {reason}",
+                            "playable": False,
+                        }
+                    )
                     continue
             else:
                 reason = "probe skipped"
-            tried.append({"name": name, "link": link, "ok": True, "reason": reason, "playable": True})
-            return ResolvedPlay(ctx=ctx, link=link, source_name=name, source_color=cand.color,
-                                 playable=True, tried=list(tried))
+            tried.append(
+                {"name": name, "link": link, "ok": True, "reason": reason, "playable": True}
+            )
+            return ResolvedPlay(
+                ctx=ctx,
+                link=link,
+                source_name=name,
+                source_color=cand.color,
+                playable=True,
+                tried=list(tried),
+            )
         if page_fallback is not None:
             page_fallback.tried = tried
             return page_fallback
         if tried:
-            return ResolvedPlay(ctx=PlayContext.page(candidates[0].link if candidates else ""),
-                                 link=candidates[0].link if candidates else "",
-                                 source_name=candidates[0].name if candidates else "",
-                                 source_color=candidates[0].color if candidates else "",
-                                 playable=False, tried=list(tried))
+            return ResolvedPlay(
+                ctx=PlayContext.page(candidates[0].link if candidates else ""),
+                link=candidates[0].link if candidates else "",
+                source_name=candidates[0].name if candidates else "",
+                source_color=candidates[0].color if candidates else "",
+                playable=False,
+                tried=list(tried),
+            )
         return None

@@ -10,6 +10,7 @@ from bootstrap import (
 )
 from app.presentation.tui import HistoryVM, HomeScreen, HistoryScreen
 from app.presentation.tui.utils.image_cache import configure as configure_images
+from app.infrastructure.logging_config import configure_logging
 
 
 class AnimeTUI(App):
@@ -44,9 +45,7 @@ class AnimeTUI(App):
         hs = self._history_service
         self.push_screen(
             HistoryScreen(
-                load_history=lambda: [
-                    HistoryVM.from_entity(e) for e in hs.get_all_deduped()
-                ],
+                load_history=lambda: [HistoryVM.from_entity(e) for e in hs.get_all_deduped()],
                 clear_history=hs.clear_all,
                 service=self._service,
                 open_video=open_video,
@@ -56,6 +55,7 @@ class AnimeTUI(App):
 
 
 def main():
+    configure_logging()
     configure_images(**build_image_deps())
     service, history_service = build_tui_wiring()
     player_deps = build_player_deps()
