@@ -76,10 +76,6 @@ class AnishelfApp:
         self._running = False
         self._tray: pystray.Icon | None = None
 
-    @property
-    def running(self) -> bool:
-        return self._running
-
     # ── server ────────────────────────────────────────────────────────
 
     def _build_app(self):
@@ -105,7 +101,6 @@ class AnishelfApp:
         except Exception:
             logger.exception("Falha ao construir app")
             self._running = False
-            self._update_tray()
             return
         config = uvicorn.Config(app, host=HOST, port=PORT, log_level="warning")
         self._server = uvicorn.Server(config)
@@ -115,27 +110,28 @@ class AnishelfApp:
             logger.exception("servidor caiu")
         finally:
             self._running = False
-            self._update_tray()
 
     # ── actions ───────────────────────────────────────────────────────
 
     def _start(self, _icon=None) -> None:
         if self._running:
+            logger.info("Servidor ja esta rodando")
             return
         self._running = True
         self._thread = threading.Thread(target=self._server_loop, daemon=True)
         self._thread.start()
-        self._update_tray()
+        self._update_icon()
         logger.info("Servidor iniciado em %s", URL)
 
     def _stop(self, _icon=None) -> None:
         if not self._running or self._server is None:
+            logger.info("Servidor nao esta rodando")
             return
         self._server.should_exit = True
         self._running = False
         self._server = None
         self._thread = None
-        self._update_tray()
+        self._update_icon()
         logger.info("Servidor parado")
 
     def _open_browser(self, _icon=None) -> None:
@@ -149,35 +145,24 @@ class AnishelfApp:
 
     # ── tray ──────────────────────────────────────────────────────────
 
-    def _update_tray(self) -> None:
+    def _update_icon(self) -> None:
         if self._tray:
             self._tray.icon = _make_icon(self._running)
 
-    def _build_menu(self) -> pystray.Menu:
-        return pystray.Menu(
-            pystray.MenuItem(
-                "Iniciar servidor",
-                self._start,
-                enabled=not self._running,
-                default=True,
-            ),
-            pystray.MenuItem("Abrir AniShelf", self._open_browser),
-            pystray.MenuItem(
-                "Parar servidor",
-                self._stop,
-                enabled=self._running,
-            ),
-            pystray.Menu.SEPARATOR,
-            pystray.MenuItem("Sair", self._quit),
-        )
-
     def run(self) -> None:
+        configure_logging()
         icon = _make_icon(False)
         self._tray = pystray.Icon(
             "anishelf",
             icon,
             "Anishelf",
-            menu=self._build_menu,
+            menu=pystray.Menu(
+                pystray.MenuItem("Iniciar servidor", self._start),
+                pystray.MenuItem("Abrir AniShelf", self._open_browser),
+                pystray.MenuItem("Parar servidor", self._stop),
+                pystray.Menu.SEPARATOR,
+                pystray.MenuItem("Sair", self._quit),
+            ),
         )
         self._tray.run()
 
