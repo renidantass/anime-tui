@@ -7,16 +7,18 @@ import unicodedata
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from concurrent.futures import as_completed
 
-from app.application.dtos import AnimeDetail, AnimeEntry, EpisodeEntry, EpisodeItem, SeasonDetail, SourceEntry, SourceInfo
-from app.application.interfaces import ISourceDiscovery
-from app.domain import Anime, Episode, PlayContext
-from app.infrastructure.anilist_client import (
-    GENRE_LABELS_PT,
-    AniListClient,
-    AniListMedia,
-    get_anilist_client,
+from app.application.dtos import (
+    AnimeDetail,
+    AnimeEntry,
+    AniListSearchMedia,
+    EpisodeEntry,
+    EpisodeItem,
+    SeasonDetail,
+    SourceEntry,
+    SourceInfo,
 )
-from app.infrastructure.sources._utils import (
+from app.application.interfaces import ISourceDiscovery
+from app.application.title_utils import (
     detect_audio_variant,
     extract_episode_number,
     is_unknown_episode_number,
@@ -24,6 +26,7 @@ from app.infrastructure.sources._utils import (
     prefer_display_title,
     strip_title_variants,
 )
+from app.domain import Anime, Episode, PlayContext
 
 logger = logging.getLogger(__name__)
 
@@ -284,7 +287,7 @@ class AnimeService:
             {
                 "id": name,
                 "name": name,
-                "label": GENRE_LABELS_PT.get(name, name),
+                "label": self._genre_labels.get(name, name),
             }
             for name in names
         ]
@@ -300,7 +303,7 @@ class AnimeService:
         genre = (genre or "").strip()
         empty = {
             "genre": genre,
-            "label": GENRE_LABELS_PT.get(genre, genre) if genre else "",
+            "label": self._genre_labels.get(genre, genre) if genre else "",
             "page": page,
             "per_page": per_page,
             "has_next": False,
@@ -346,7 +349,7 @@ class AnimeService:
             )
         return {
             "genre": genre,
-            "label": GENRE_LABELS_PT.get(genre, genre),
+            "label": self._genre_labels.get(genre, genre),
             "page": al_page.page,
             "per_page": al_page.per_page,
             "has_next": al_page.has_next,
@@ -714,7 +717,7 @@ class AnimeService:
             return []
         sources_sig = ",".join(sorted(e.identifier for e in sources))
 
-        media_list: list[AniListMedia] = []
+        media_list: list[AniListSearchMedia] = []
         meta_by_id: dict[int, dict] = {}
         for raw in items:
             titles = [t for t in (raw.get("titles") or []) if t]
@@ -725,7 +728,7 @@ class AnimeService:
                 continue
             mid = int(raw.get("id") or 0)
             media_list.append(
-                AniListMedia(
+                AniListSearchMedia(
                     id=mid,
                     title_romaji=titles[0],
                     title_english=titles[1] if len(titles) > 1 else "",
@@ -772,7 +775,7 @@ class AnimeService:
         # cache → resultados parciais; só busca o que falta
         now = time.monotonic()
         by_id: dict[int, AnimeEntry] = {}
-        to_fetch: list[AniListMedia] = []
+        to_fetch: list[AniListSearchMedia] = []
         for media in media_list:
             ck = self._resolve_cache_key(media, sources_sig)
             cached = _resolve_cache.get(ck)
@@ -946,7 +949,7 @@ class AnimeService:
             "items": found,
         }
 
-    def _resolve_cache_key(self, media: AniListMedia, sources_sig: str) -> str:
+    def _resolve_cache_key(self, media: AniListSearchMedia, sources_sig: str) -> str:
         titles = "|".join(media.search_titles()[:2])
         return f"{sources_sig}::{self._normalize(titles)}"
 

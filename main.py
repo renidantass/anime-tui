@@ -1,22 +1,23 @@
-from app.application.anime_service import AnimeService
-from app.application.watch_history_service import WatchHistoryService
-from app.infrastructure.sources import SourceDiscovery
-from app.presentation.screens import HomeScreen, HistoryScreen
-from app.presentation.view_models.history_vm import HistoryVM
+"""Entrypoint TUI — animes-tui."""
+
 from textual.app import App
+
+from bootstrap import (
+    build_tui_wiring,
+    build_player_deps,
+    build_image_deps,
+    open_video,
+)
+from app.presentation.tui import HistoryVM, HomeScreen, HistoryScreen
+from app.presentation.tui.utils.image_cache import configure as configure_images
 
 
 class AnimeTUI(App):
-    def __init__(
-        self,
-        service: AnimeService,
-        history_service: WatchHistoryService,
-        *args,
-        **kwargs,
-    ):
-        super().__init__(*args, **kwargs)
+    def __init__(self, service, history_service, player_deps):
+        super().__init__()
         self._service = service
         self._history_service = history_service
+        self._player_deps = player_deps
 
     BINDINGS = [
         ("q", "quit", "Sair"),
@@ -28,6 +29,8 @@ class AnimeTUI(App):
         self.push_screen(
             HomeScreen(
                 self._service,
+                self._player_deps,
+                open_video,
                 on_watch=hs.add_entry,
                 get_progress=hs.get_progress,
                 on_progress=lambda link, pos, dur: hs.update_progress(link, pos, dur),
@@ -46,15 +49,17 @@ class AnimeTUI(App):
                 ],
                 clear_history=hs.clear_all,
                 service=self._service,
+                open_video=open_video,
                 on_progress=lambda link, pos, dur: hs.update_progress(link, pos, dur),
             )
         )
 
 
 def main():
-    service = AnimeService(source_discovery=SourceDiscovery())
-    history_service = WatchHistoryService()
-    app = AnimeTUI(service=service, history_service=history_service)
+    configure_images(**build_image_deps())
+    service, history_service = build_tui_wiring()
+    player_deps = build_player_deps()
+    app = AnimeTUI(service, history_service, player_deps)
     app.run()
 
 

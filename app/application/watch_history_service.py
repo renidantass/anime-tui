@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from app.domain.watch_history import WatchHistoryEntry
-from app.infrastructure.sources._utils import (
+from app.application.title_utils import (
     is_unknown_episode_number,
     normalize_watch_titles,
     strip_title_variants,
