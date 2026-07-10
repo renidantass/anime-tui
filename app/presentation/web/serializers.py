@@ -127,6 +127,17 @@ def source_entry(e: SourceEntry, enabled: bool) -> dict:
     }
 
 
+def watch_later_entry(e) -> dict:
+    return {
+        "anime_title": e.anime_title,
+        "anime_image": e.anime_image or "",
+        "source_name": e.source_name or "",
+        "source_link": e.source_link or "",
+        "source_color": e.source_color or "",
+        "added_at": e.added_at,
+    }
+
+
 def history_entry(e) -> dict:
     from app.application.title_utils import normalize_watch_titles
 

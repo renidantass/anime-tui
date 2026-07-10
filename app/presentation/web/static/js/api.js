@@ -81,6 +81,12 @@ export const api = {
       body: JSON.stringify(body),
     }),
   clearHistory: () => request("/api/history", { method: "DELETE" }),
+  watchLater: () => request("/api/watch-later"),
+  addWatchLater: (body) =>
+    request("/api/watch-later", { method: "POST", body: JSON.stringify(body) }),
+  removeWatchLater: (title) =>
+    request(`/api/watch-later/${encodeURIComponent(title)}`, { method: "DELETE" }),
+  clearWatchLater: () => request("/api/watch-later", { method: "DELETE" }),
   sources: () => request("/api/sources"),
   setSource: (id, enabled) =>
     request(`/api/sources/${encodeURIComponent(id)}`, {

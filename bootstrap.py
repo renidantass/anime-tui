@@ -17,6 +17,7 @@ from app.application.play_orchestration_service import PlayOrchestrationService
 from app.application.skip_times_service import SkipTimesService
 from app.application.stream_resolution_service import StreamResolutionService
 from app.application.watch_history_service import WatchHistoryService
+from app.application.watch_later_service import WatchLaterService
 from app.infrastructure.anilist_client import GENRE_LABELS_PT, get_anilist_client
 from app.infrastructure.aniskip_client import fetch_skip_times
 from app.infrastructure.config import load as load_config, save as save_config
@@ -46,7 +47,7 @@ def _make_anon_lambda(fn, *args):
 
 def build_anime_service() -> AnimeService:
     return AnimeService(
-        source_discovery=SourceDiscovery(),
+        source_discovery=SourceDiscovery(config=load_config()),
         anilist=get_anilist_client(),
         genre_labels=GENRE_LABELS_PT,
     )
@@ -83,10 +84,13 @@ def web_lifespan():
         logging.basicConfig(level=logging.INFO)
         svc = build_anime_service()
         hst = WatchHistoryService()
+        wl = WatchLaterService()
         sessions = StreamSessionStore()
         resolution = StreamResolutionService(
             probe=probe_stream,
-            finalize=lambda ctx: finalize_with_blogger(ctx, resolve_blogger=resolve_blogger_context),
+            finalize=lambda ctx: finalize_with_blogger(
+                ctx, resolve_blogger=resolve_blogger_context
+            ),
         )
         orchestrator = PlayOrchestrationService(
             anime_service=svc,
@@ -98,6 +102,7 @@ def web_lifespan():
 
         app.state.service = svc
         app.state.history = hst
+        app.state.watch_later = wl
         app.state.sessions = sessions
         app.state.play_orchestrator = orchestrator
         app.state.skip_times = st
@@ -117,7 +122,9 @@ def web_lifespan():
 
         get_executor().submit(warm)
         yield
-        get_executor().shutdown(wait=False, cancel_futures=True)
+        get_executor().shutdown(wait=True, cancel_futures=False)
+        logger.info("Thread pool finalizado")
+
     return lifespan
 
 

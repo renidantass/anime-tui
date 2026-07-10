@@ -48,3 +48,11 @@ class SourceToggle(BaseModel):
 
 class GenreResolveRequest(BaseModel):
     items: list[dict] = Field(default_factory=list)
+
+
+class WatchLaterAddRequest(BaseModel):
+    anime_title: str
+    anime_image: str = ""
+    source_name: str = ""
+    source_link: str = ""
+    source_color: str = ""

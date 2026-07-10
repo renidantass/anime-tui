@@ -3,7 +3,7 @@ import { state } from "../state.js";
 import { $, $$, escapeHtml, PLACEHOLDER_POSTER, skeletonShelf } from "../utils/dom.js";
 import { normalizeWatchTitles, resolveEpisodeNumber } from "../utils/titles.js";
 import { hasAudioChoice as _hasAudioChoice, detectAudioVariant, audioBucket, resolveSourceVariant } from "../utils/audio.js";
-import { episodeCard, animeCard, historyCard, audioChoiceBadge } from "../cards.js";
+import { episodeCard, animeCard, historyCard, watchLaterCard, audioChoiceBadge } from "../cards.js";
 import { waitSourcesReady, hasAnyEnabledSource } from "../search.js";
 import { toast } from "../toast.js";
 import { onEpisodeClick } from "../play-flow.js";
@@ -47,6 +47,7 @@ export async function loadHome({ silent = false } = {}) {
     renderHero();
     renderEpisodesRow();
     renderContinueRow();
+    renderWatchLaterRow();
   } catch (e) {
     if (seq !== state.catalogReloadSeq) return;
     if (!silent) toast(e.message || "Não foi possível carregar", true);
@@ -280,6 +281,29 @@ function dedupeHistoryByAnime(items) {
     out.push({ ...h, anime_title: labels.animeTitle, episode_title: labels.episodeTitle, episode_number: labels.number });
   }
   return out;
+}
+
+export async function renderWatchLaterRow() {
+  const row = $("#row-watchlater");
+  const scroller = $("#watchlater-scroller");
+  if (!row || !scroller) return;
+  try {
+    const data = await api.watchLater();
+    const items = data.items || [];
+    if (!items.length) {
+      row.hidden = true;
+      return;
+    }
+    row.hidden = false;
+    scroller.innerHTML = "";
+    const frag = document.createDocumentFragment();
+    for (const item of items.slice(0, 20)) {
+      frag.appendChild(watchLaterCard(item));
+    }
+    scroller.appendChild(frag);
+  } catch {
+    row.hidden = true;
+  }
 }
 
 export async function renderContinueRow() {
