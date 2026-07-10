@@ -445,13 +445,14 @@
   display: grid;
   place-items: center;
   backdrop-filter: blur(6px);
-  transition: background 0.2s, color 0.2s, transform 0.15s;
+  transition: background 0.2s, color 0.2s, transform 0.15s, opacity 0.2s;
+}
+
+.card-remove-btn {
   opacity: 0;
 }
 
-.card:hover .card-bookmark-btn,
-.card:hover .card-remove-btn,
-.card-bookmark-btn.is-saved {
+.card:hover .card-remove-btn {
   opacity: 1;
 }
 
