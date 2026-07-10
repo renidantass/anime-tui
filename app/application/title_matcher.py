@@ -1,5 +1,6 @@
 """Normalização e matching de títulos — funções puras sem estado."""
 
+import difflib
 import re
 import unicodedata
 
@@ -91,6 +92,21 @@ def best_title_score(source_title: str, anilist_keys: set[str],
 def titles_match(source_title: str, anilist_keys: set[str],
                  anilist_titles: list[str]) -> bool:
     return best_title_score(source_title, anilist_keys, anilist_titles) >= 0.62
+
+
+def titles_are_similar(title_a: str, title_b: str, threshold: float = 0.60) -> bool:
+    """Check if two anime titles are similar enough to be the same anime."""
+    na, nb = normalize_text(title_a or ""), normalize_text(title_b or "")
+    if not na or not nb:
+        return False
+    if na == nb:
+        return True
+    if na in nb or nb in na:
+        return True
+    ratio = difflib.SequenceMatcher(None, na, nb).ratio()
+    if ratio >= threshold:
+        return True
+    return _title_similarity(title_a, title_b) >= threshold
 
 
 def _title_similarity(a: str, b: str) -> float:

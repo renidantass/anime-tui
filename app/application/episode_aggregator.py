@@ -8,7 +8,7 @@ from concurrent.futures import as_completed
 from app.application._executor import get_executor
 from app.application.dtos import AnimeEntry, EpisodeEntry, SourceEntry, SourceInfo
 from app.application.interfaces import ISourceDiscovery
-from app.application.title_matcher import anime_key, append_source, ep_key
+from app.application.title_matcher import anime_key, append_source, ep_key, titles_are_similar
 from app.application.title_utils import (
     extract_episode_number,
     is_unknown_episode_number,
@@ -61,6 +61,36 @@ class EpisodeAggregator:
                         existing.date = ep.date
                 append_source(entries[key].sources, name=name, video_src=ep.video_src,
                               link=ep.link, color=entry.color, title=ep.title)
+
+        # ── Fuzzy merge: group entries with similar anime title + same episode number ──
+        if len(entries) > 1:
+            items = list(entries.items())
+            merged_keys: set[str] = set()
+            result: dict[str, EpisodeEntry] = {}
+            for i, (ka, ea) in enumerate(items):
+                if ka in merged_keys:
+                    continue
+                merged_keys.add(ka)
+                base_a = ka.rsplit("|", 1)[0]
+                num_a = ka.rsplit("|", 1)[1] if "|" in ka else ""
+                for j, (kb, eb) in enumerate(items):
+                    if kb in merged_keys or j <= i:
+                        continue
+                    base_b = kb.rsplit("|", 1)[0]
+                    num_b = kb.rsplit("|", 1)[1] if "|" in kb else ""
+                    if num_a and num_b and num_a == num_b and titles_are_similar(base_a, base_b):
+                        merged_keys.add(kb)
+                        ea.title = prefer_display_title(ea.title, eb.title)
+                        if not ea.image and eb.image:
+                            ea.image = eb.image
+                        if not ea.date and eb.date:
+                            ea.date = eb.date
+                        for src in eb.sources:
+                            append_source(ea.sources, name=src.name, video_src=src.video_src,
+                                          link=src.link, color=src.color, title=src.title)
+                result[ka] = ea
+            entries = result
+
         return list(entries.values())
 
     def search_by(self, name: str) -> list[AnimeEntry]:
