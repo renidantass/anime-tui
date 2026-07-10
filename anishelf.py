@@ -9,6 +9,7 @@ Dá duplo-clique no executável e controla pelo ícone na bandeja:
 from __future__ import annotations
 
 import logging
+import os
 import sys
 import threading
 import webbrowser
@@ -30,8 +31,19 @@ logger = logging.getLogger(__name__)
 
 
 def _static_dir() -> Path:
-    base = Path(getattr(sys, "_MEIPASS", "")) if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
+    if getattr(sys, "frozen", False):
+        base = Path(getattr(sys, "_MEIPASS", ""))
+    else:
+        base = Path(__file__).resolve().parent
     return base / "app" / "presentation" / "web" / "static"
+
+
+def _log_file_path() -> Path | None:
+    if getattr(sys, "frozen", False):
+        log_dir = Path.home() / ".anishelf" / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        return log_dir / "anishelf.log"
+    return None
 
 
 def _make_icon(running: bool = False) -> Image.Image:
@@ -72,8 +84,14 @@ class AnishelfApp:
 
     def _build_app(self):
         configure_logging()
+        log_path = _log_file_path()
+        if log_path:
+            os.environ["LOG_FILE"] = str(log_path)
+            configure_logging()
+            logger.info("Logging para arquivo: %s", log_path)
         app = create_app(lifespan=web_lifespan())
         static = _static_dir()
+        logger.info("Static dir: %s (exists=%s)", static, static.is_dir())
         if static.is_dir():
             from fastapi.staticfiles import StaticFiles
 
@@ -81,12 +99,23 @@ class AnishelfApp:
         return app
 
     def _server_loop(self) -> None:
-        config = uvicorn.Config(self._build_app(), host=HOST, port=PORT, log_level="warning")
+        logger.info("Iniciando servidor em %s:%s", HOST, PORT)
+        try:
+            app = self._build_app()
+        except Exception:
+            logger.exception("Falha ao construir app")
+            self._running = False
+            self._update_tray()
+            return
+        config = uvicorn.Config(app, host=HOST, port=PORT, log_level="warning")
         self._server = uvicorn.Server(config)
         try:
             self._server.run()
         except Exception:
             logger.exception("servidor caiu")
+        finally:
+            self._running = False
+            self._update_tray()
 
     # ── actions ───────────────────────────────────────────────────────
 
@@ -143,7 +172,6 @@ class AnishelfApp:
         )
 
     def run(self) -> None:
-        configure_logging()
         icon = _make_icon(False)
         self._tray = pystray.Icon(
             "anishelf",
@@ -155,6 +183,11 @@ class AnishelfApp:
 
 
 def main() -> None:
+    if getattr(sys, "frozen", False):
+        log_path = _log_file_path()
+        if log_path:
+            sys.stdout = sys.stderr = open(str(log_path), "a", encoding="utf-8")
+    configure_logging()
     AnishelfApp().run()
 
 
