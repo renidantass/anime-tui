@@ -517,10 +517,7 @@ def _parse_streaming_episodes(raw: list | None) -> list[dict]:
             num = str(int(m.group(1)))
         else:
             m2 = re.match(r"^\s*(\d{1,4})\b", title)
-            if m2:
-                num = str(int(m2.group(1)))
-            else:
-                num = str(i + 1)
+            num = str(int(m2.group(1))) if m2 else str(i + 1)
         if num in seen and not thumb:
             continue
         seen.add(num)
@@ -948,7 +945,7 @@ def _title_score(query: str, media: AniListMedia) -> float:
             # overlap alto no início do título
             q_toks, t_toks = q.split(), nt.split()
             pref = 0
-            for a, b in zip(q_toks, t_toks):
+            for a, b in zip(q_toks, t_toks, strict=False):
                 if a == b:
                     pref += 1
                 else:

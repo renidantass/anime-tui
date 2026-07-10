@@ -1,5 +1,6 @@
 import asyncio
 from collections.abc import Callable
+from contextlib import suppress
 from datetime import UTC, datetime
 
 from rich.table import Table
@@ -170,10 +171,8 @@ class HistoryScreen(Screen):
         return Static(table)
 
     def _set_status(self, msg: str) -> None:
-        try:
+        with suppress(Exception):
             self.query_one("#status", Static).update(msg)
-        except Exception:
-            pass
 
     def on_list_view_selected(self, event: ListView.Selected) -> None:
         entry: HistoryVM | None = event.item.meta.get("entry")

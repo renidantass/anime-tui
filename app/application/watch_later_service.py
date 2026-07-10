@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import threading
+from contextlib import suppress
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -141,7 +142,5 @@ class WatchLaterService:
             tmp_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
             os.replace(tmp_path, self._file_path)
         finally:
-            try:
+            with suppress(OSError):
                 tmp_path.unlink(missing_ok=True)
-            except OSError:
-                pass

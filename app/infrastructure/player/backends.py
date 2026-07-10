@@ -12,6 +12,7 @@ import threading
 import time
 import uuid
 import webbrowser
+from contextlib import suppress
 from pathlib import Path
 
 from app.infrastructure.player.base import (
@@ -68,17 +69,13 @@ def _vlc_rc_cmd(
     try:
         with socket.create_connection((host, port), timeout=1.0) as sock:
             sock.settimeout(1.0)
-            try:
+            with suppress(OSError):
                 sock.recv(4096)
-            except OSError:
-                pass
             if passwd:
                 sock.sendall((passwd + "\n").encode())
                 time.sleep(0.08)
-                try:
+                with suppress(OSError):
                     sock.recv(4096)
-                except OSError:
-                    pass
             sock.sendall((cmd.strip() + "\n").encode())
             time.sleep(0.05)
             data = b""
@@ -192,10 +189,8 @@ class MpvBackend(VideoBackend):
         def _chmod_sock() -> None:
             for _ in range(50):
                 if Path(ipc_path).exists():
-                    try:
+                    with suppress(OSError):
                         os.chmod(ipc_path, stat.S_IRUSR | stat.S_IWUSR)
-                    except OSError:
-                        pass
                     return
                 time.sleep(0.05)
 
@@ -244,10 +239,8 @@ class MpvBackend(VideoBackend):
                 if pair and (pair[0] or pair[1]):
                     on_position(pair[0] or 0.0, pair[1] or 0.0)
         finally:
-            try:
+            with suppress(OSError):
                 Path(ipc_path).unlink(missing_ok=True)
-            except OSError:
-                pass
 
 
 class VlcBackend(VideoBackend):

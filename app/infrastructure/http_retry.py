@@ -31,8 +31,7 @@ def retry_request(
     for attempt in range(max_retries + 1):
         try:
             resp = fetcher(method, url, timeout=timeout, **kwargs)
-            if resp.status_code == 429 or resp.status_code >= 500:
-                if attempt < max_retries:
+            if (resp.status_code == 429 or resp.status_code >= 500) and attempt < max_retries:
                     delay = min(base_delay * (2**attempt), max_delay)
                     logger.debug(
                         "HTTP %d de %s — retry %d/%d em %.1fs",

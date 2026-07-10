@@ -1,3 +1,4 @@
+from contextlib import suppress
 from typing import Any
 
 from textual.app import ComposeResult
@@ -126,10 +127,8 @@ class SourceManagerScreen(Screen):
         player = btn_id[len("player-") :]
         self._config.player = player
         self._deps["save_config"](self._config)
-        try:
+        with suppress(Exception):
             self.query_one("#player-status", Static).update(self._player_status_text())
-        except Exception:
-            pass
         if player not in (
             self._deps["PLAYER_AUTO"],
             self._deps["PLAYER_BROWSER"],

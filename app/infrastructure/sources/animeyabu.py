@@ -120,12 +120,8 @@ class AnimeYabu(AnimeSource):
                 if chunk[:4] == b"RIFF" and b"WEBP" in chunk[:16]:
                     # webp minúsculo (~1KB) costuma ser placeholder ruim
                     cl = r.headers.get("Content-Length")
-                    if cl and cl.isdigit() and int(cl) < 1500:
-                        return False
-                    return True
-                if ct.startswith("image/"):
-                    return True
-                return False
+                    return not (cl and cl.isdigit() and int(cl) < 1500)
+                return bool(ct.startswith("image/"))
             finally:
                 r.close()
         except requests.RequestException:

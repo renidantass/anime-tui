@@ -253,9 +253,7 @@ class Topanimes(AnimeSource):
                     return False
                 chunk = next(r.iter_content(32), b"")
                 # PNG magic / HTML
-                if chunk.startswith(b"\x89PNG") or chunk.startswith(b"<"):
-                    return False
-                return True
+                return not (chunk.startswith(b"\x89PNG") or chunk.startswith(b"<"))
             finally:
                 r.close()
         except requests.RequestException:

@@ -7,6 +7,7 @@ import subprocess
 import threading
 from abc import ABC, abstractmethod
 from collections.abc import Callable
+from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -137,10 +138,8 @@ def popen(args: list[str]) -> subprocess.Popen | None:
 
 def ensure_ipc_dir() -> Path:
     IPC_DIR.mkdir(parents=True, exist_ok=True)
-    try:
+    with suppress(OSError):
         IPC_DIR.chmod(0o700)
-    except OSError:
-        pass
     return IPC_DIR
 
 

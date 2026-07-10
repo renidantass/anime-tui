@@ -1,6 +1,7 @@
 import asyncio
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import suppress
 
 from rich.table import Table
 from rich.text import Text
@@ -258,10 +259,8 @@ class HomeScreen(Screen):
         )
 
     def _set_play_status(self, msg: str) -> None:
-        try:
+        with suppress(Exception):
             self.query_one("#status", Static).update(msg)
-        except Exception:
-            pass
 
     def _status_from_worker(self, msg: str) -> None:
         """Atualiza status a partir de thread do player (não bloqueia o worker)."""
