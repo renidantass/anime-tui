@@ -247,6 +247,7 @@
 
 .empty-state {
   grid-column: 1 / -1;
+  width: 100%;
   text-align: center;
   color: var(--muted);
   padding: 3.25rem 1.25rem;
@@ -257,6 +258,19 @@
     rgba(16, 22, 36, 0.45);
   font-weight: 500;
   line-height: 1.5;
+}
+
+.empty-state-ico {
+  width: 64px;
+  height: 64px;
+  margin: 0 auto 1rem;
+  border-radius: 20px;
+  background: var(--cyan-soft);
+  border: 1px solid rgba(0, 240, 255, 0.12);
+  display: grid;
+  place-items: center;
+  color: var(--cyan);
+  opacity: 0.55;
 }
 
 .empty-state strong {

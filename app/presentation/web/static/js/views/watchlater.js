@@ -112,7 +112,7 @@ function build(items) {
           </svg>
         </div>
         <strong>Sua lista de favoritos está vazia</strong>
-        <p>Animes que você salvar aparecem aqui. Use o ícone de bookmark nos cards para adicionar.</p>
+        Animes que você salvar aparecem aqui. Use o ícone de bookmark nos cards para adicionar.
       </div>`;
     return;
   }

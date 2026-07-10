@@ -187,10 +187,18 @@
   animation: fade-up 0.35s var(--ease-out) both;
 }
 
-/* Empty state — distinct from the generic .empty-state */
+/* Empty state — same chassis as History .empty-state for consistency */
 .wl-empty {
   text-align: center;
-  padding: 4rem 1.5rem;
+  color: var(--muted);
+  padding: 3.25rem 1.25rem;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius);
+  background:
+    radial-gradient(400px 160px at 50% 0%, rgba(245, 158, 11, 0.06), transparent 70%),
+    rgba(16, 22, 36, 0.45);
+  font-weight: 500;
+  line-height: 1.5;
   animation: fade-up 0.45s var(--ease-out) both;
 }
 
@@ -208,15 +216,9 @@
 
 .wl-empty strong {
   display: block;
-  font-size: 1.1rem;
   color: var(--text);
+  font-size: 1.05rem;
+  font-weight: 800;
   margin-bottom: 0.35rem;
 }
 
-.wl-empty p {
-  color: var(--dim);
-  font-size: 0.9rem;
-  max-width: 32ch;
-  margin: 0 auto;
-  line-height: 1.5;
-}

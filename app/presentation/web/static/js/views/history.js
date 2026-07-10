@@ -37,7 +37,17 @@ export async function loadHistoryPage() {
     const data = await api.history(true);
     const items = dedupeHistoryByAnime(data.items || []);
     if (!items.length) {
-      grid.innerHTML = `<div class="empty-state"><strong>Nada aqui ainda</strong>Quando assistir um episódio, ele aparece com o progresso.</div>`;
+      grid.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-state-ico" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"/>
+              <polyline points="12 6 12 12 16 14"/>
+            </svg>
+          </div>
+          <strong>Nada aqui ainda</strong>
+          Quando assistir um episódio, ele aparece com o progresso.
+        </div>`;
       return;
     }
     grid.innerHTML = "";

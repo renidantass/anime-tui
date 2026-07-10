@@ -315,7 +315,17 @@ export async function renderContinueRow() {
     state.history = dedupeHistoryByAnime(data.items || []);
     const active = state.history.filter((h) => !h.is_finished);
     if (!active.length) {
-      row.hidden = true;
+      row.hidden = false;
+      scroller.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-state-ico" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="28" height="28" fill="currentColor">
+              <path d="M8 5v14l11-7z"/>
+            </svg>
+          </div>
+          <strong>Nada em andamento</strong>
+          Quando assistir um episódio, o anime aparece aqui para continuar.
+        </div>`;
       return;
     }
     row.hidden = false;
