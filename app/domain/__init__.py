@@ -4,4 +4,4 @@ from .play_context import PlayContext
 from .season import Season
 from .watch_history import WatchHistoryEntry
 
-__all__ = [Anime, Episode, PlayContext, Season, WatchHistoryEntry]
+__all__ = ["Anime", "Episode", "PlayContext", "Season", "WatchHistoryEntry"]

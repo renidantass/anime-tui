@@ -29,7 +29,9 @@ class OpeningMarkService:
     @staticmethod
     def _normalize_title(title: str) -> str:
         import re
-        t = str(title or "").strip().lower().normalize("NFKD")
+        import unicodedata
+
+        t = unicodedata.normalize("NFKD", str(title or "").strip().lower())
         t = "".join(c for c in t if ord(c) < 0x0300 or ord(c) > 0x036F)
         return re.sub(r"\s+", " ", t)
 
