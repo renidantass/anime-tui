@@ -8,9 +8,7 @@ Dá duplo-clique no executável e controla pelo ícone na bandeja:
 
 from __future__ import annotations
 
-import ctypes
 import logging
-import os
 import sys
 import threading
 import webbrowser
@@ -26,8 +24,7 @@ from bootstrap import web_lifespan
 
 HOST = "127.0.0.1"
 PORT = 8080
-LOCALNAME = "ahi.shelf"
-URL = f"http://{LOCALNAME}:{PORT}"
+URL = f"http://{HOST}:{PORT}"
 
 logger = logging.getLogger(__name__)
 
@@ -58,48 +55,6 @@ def _make_icon(running: bool = False) -> Image.Image:
     )
 
     return img
-
-
-# ── hosts helpers (Windows) ─────────────────────────────────────────
-
-
-def _hosts_path() -> Path:
-    return Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "drivers" / "etc" / "hosts"
-
-
-def _is_in_hosts() -> bool:
-    try:
-        hosts = _hosts_path().read_text(encoding="utf-8")
-        return LOCALNAME in hosts
-    except Exception:
-        return False
-
-
-def _is_admin() -> bool:
-    try:
-        return ctypes.windll.shell32.IsUserAnAdmin() != 0
-    except Exception:
-        return False
-
-
-def _add_to_hosts() -> None:
-    hosts = _hosts_path()
-    line = f"127.0.0.1 {LOCALNAME}\n"
-    try:
-        with hosts.open("a", encoding="utf-8") as f:
-            f.write(line)
-        logger.info("%s adicionado ao hosts", LOCALNAME)
-    except Exception:
-        logger.exception("Falha ao adicionar %s ao hosts", LOCALNAME)
-
-
-def _elevate_and_setup_hosts() -> None:
-    """Relança o próprio executável como admin com --setup-hosts."""
-    exe = sys.executable
-    ctypes.windll.shell32.ShellExecuteW(None, "runas", exe, "--setup-hosts", None, 1)
-
-
-# ── app ─────────────────────────────────────────────────────────────
 
 
 class AnishelfApp:
@@ -163,15 +118,6 @@ class AnishelfApp:
             self._tray.visible = False
             self._tray.stop()
 
-    def _setup_hosts(self, _icon=None) -> None:
-        if _is_in_hosts():
-            return
-        if _is_admin():
-            _add_to_hosts()
-            self._tray.update_menu()
-        else:
-            _elevate_and_setup_hosts()
-
     # ── tray ──────────────────────────────────────────────────────────
 
     def _update_tray(self) -> None:
@@ -180,8 +126,6 @@ class AnishelfApp:
             self._tray.update_menu()
 
     def _build_menu(self) -> pystray.Menu:
-        hosts_ok = _is_in_hosts()
-        hosts_label = f"{LOCALNAME} configurado" if hosts_ok else f"Configurar {LOCALNAME}"
         return pystray.Menu(
             pystray.MenuItem(
                 "Iniciar servidor",
@@ -194,12 +138,6 @@ class AnishelfApp:
                 "Parar servidor",
                 self._stop,
                 enabled=lambda item: self._running,
-            ),
-            pystray.Menu.SEPARATOR,
-            pystray.MenuItem(
-                hosts_label,
-                self._setup_hosts,
-                enabled=lambda item: not hosts_ok,
             ),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("Sair", self._quit),
@@ -218,16 +156,6 @@ class AnishelfApp:
 
 
 def main() -> None:
-    if "--setup-hosts" in sys.argv:
-        configure_logging()
-        if not _is_admin():
-            logger.error("--setup-hosts requer administrador")
-            sys.exit(1)
-        if _is_in_hosts():
-            logger.info("%s ja esta no hosts", LOCALNAME)
-        else:
-            _add_to_hosts()
-        sys.exit(0)
     AnishelfApp().run()
 
 
