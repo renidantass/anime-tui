@@ -20,6 +20,8 @@ export const p = {
   introResolveSettled: false,
   skipFetchToken: 0,
   controlsIdleTimer: null,
+  skipIntroShowTimer: null,
+  skipIntroShownForInterval: false,
 };
 
 export const $video = () => $("#video");
@@ -46,6 +48,7 @@ export const $volumeThumb = () => $("#volume-thumb");
 export const $btnPip = () => $("#btn-pip");
 export const $btnDownload = () => $("#btn-download");
 export const $btnFullscreen = () => $("#btn-fullscreen");
+export const $markBtn = () => $("#btn-mark-intro");
 export const $iconFsEnter = () => $("#icon-fs-enter");
 export const $iconFsExit = () => $("#icon-fs-exit");
 export const $hint = () => $("#player-hint");
@@ -115,10 +118,26 @@ export function setSkipIntroLabel(mode) {
   }
 }
 
+export function setMarkBtnActive(active) {
+  const btn = $markBtn();
+  if (!btn) return;
+  btn.classList.toggle("is-active", !!active);
+  btn.textContent = active ? "Salvar OP" : "Marcar OP";
+  btn.title = active
+    ? "Posicione no fim da opening e clique em 'Salvar fim da OP'"
+    : "Marcar onde termina a opening deste anime";
+}
+
 export function setSkipIntroVisible(show) {
   const btn = $skipBtn();
   if (!btn) return;
   btn.hidden = !show;
+  if (!show) {
+    if (p.skipIntroShowTimer) {
+      clearTimeout(p.skipIntroShowTimer);
+      p.skipIntroShowTimer = null;
+    }
+  }
 }
 
 export function animeStorageKey(title) {
@@ -152,5 +171,58 @@ export function saveLocalIntroEnd(animeTitle, endSeconds) {
   map[key] = end;
   try {
     localStorage.setItem(LOCAL_INTRO_KEY, JSON.stringify(map));
+  } catch { /* ignore */ }
+}
+
+// ── Marcação por temporada (backend + cache local) ───────────────────────────
+
+export async function getOpeningMark(animeTitle, seasonNumber = 1) {
+  const cacheKey = `${animeStorageKey(animeTitle)}|s${Math.max(1, seasonNumber || 1)}`;
+  try {
+    const raw = localStorage.getItem("anishelf.openingMarksCache");
+    const cache = raw ? JSON.parse(raw) : {};
+    const cached = cache[cacheKey];
+    if (cached != null && Number.isFinite(cached) && cached >= 20 && cached <= 240) {
+      return cached;
+    }
+  } catch { /* ignore */ }
+
+  try {
+    const { api } = await import("../api.js");
+    const data = await api.openingMark(animeTitle, seasonNumber);
+    if (data?.has_mark && data.end_seconds != null) {
+      const end = Number(data.end_seconds);
+      if (Number.isFinite(end) && end >= 20 && end <= 240) {
+        try {
+          const raw = localStorage.getItem("anishelf.openingMarksCache") || "{}";
+          const cache = JSON.parse(raw);
+          cache[cacheKey] = end;
+          localStorage.setItem("anishelf.openingMarksCache", JSON.stringify(cache));
+        } catch { /* ignore */ }
+        return end;
+      }
+    }
+  } catch { /* ignore */ }
+  return null;
+}
+
+export async function saveOpeningMark(animeTitle, seasonNumber, endSeconds) {
+  const end = Math.round(Number(endSeconds) * 10) / 10;
+  if (!Number.isFinite(end) || end < 20 || end > 240) return;
+  const season = Math.max(1, seasonNumber || 1);
+  const cacheKey = `${animeStorageKey(animeTitle)}|s${season}`;
+
+  // atualiza cache local imediatamente
+  try {
+    const raw = localStorage.getItem("anishelf.openingMarksCache") || "{}";
+    const cache = JSON.parse(raw);
+    cache[cacheKey] = end;
+    localStorage.setItem("anishelf.openingMarksCache", JSON.stringify(cache));
+  } catch { /* ignore */ }
+
+  // persiste no backend
+  try {
+    const { api } = await import("../api.js");
+    await api.saveOpeningMark({ anime_title: animeTitle, season_number: season, end_seconds: end });
   } catch { /* ignore */ }
 }

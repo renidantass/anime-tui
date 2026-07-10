@@ -57,6 +57,19 @@ export function skeletonShelf(count = 8) {
   `).join("");
 }
 
+export function skeletonEpisodes(count = 6) {
+  return Array.from({ length: count }, (_, i) => `
+    <div class="ep-skeleton" style="animation-delay:${(i * 0.05).toFixed(2)}s">
+      <div class="ep-skeleton-thumb"></div>
+      <div class="ep-skeleton-body">
+        <div class="ep-skeleton-line ep-skeleton-line--mid"></div>
+        <div class="ep-skeleton-line ep-skeleton-line--narrow"></div>
+      </div>
+      <div class="ep-skeleton-play"></div>
+    </div>
+  `).join("");
+}
+
 export function showGenreSkeletons(count = 6) {
   const scroller = $("#genre-scroller");
   if (!scroller) return;

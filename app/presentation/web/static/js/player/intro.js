@@ -3,7 +3,8 @@ import {
   p, $video, $modal, $skipBtn,
   SKIP_INTRO_MIN_DURATION, SKIP_INTRO_DEFAULT_END, SKIP_INTRO_HIDE_BEFORE,
   getLocalIntroEnd, saveLocalIntroEnd,
-  setSkipIntroVisible, setSkipIntroLabel, ensureSkipButtonStructure,
+  getOpeningMark, saveOpeningMark,
+  setSkipIntroVisible, setSkipIntroLabel, setMarkBtnActive, ensureSkipButtonStructure,
 } from "./state.js";
 
 function parseAniSkipOpPayload(data) {
@@ -38,29 +39,47 @@ async function fetchAniSkipOp(malId, episodeNumber, episodeLength) {
   } catch { return null; }
 }
 
-async function resolveIntroInterval({ malId, episodeNumber, animeTitle, episodeLength, token }) {
+async function resolveIntroInterval({ malId, episodeNumber, animeTitle, seasonNumber, episodeLength, token }) {
   try {
     const fromApi = await fetchAniSkipOp(malId, episodeNumber, episodeLength);
     if (token !== p.skipFetchToken) return;
     if (fromApi) {
       p.introInterval = { ...fromApi, source: "aniskip" };
       p.markIntroMode = false;
+      setMarkBtnActive(false);
       setSkipIntroLabel("skip");
       updateSkipIntroButton();
       return;
     }
+
+    // tenta marcação por temporada (backend)
+    const seasonEnd = await getOpeningMark(animeTitle, seasonNumber);
+    if (token !== p.skipFetchToken) return;
+    if (seasonEnd != null) {
+      p.introInterval = { start: 0, end: seasonEnd, source: "season" };
+      p.markIntroMode = false;
+      setMarkBtnActive(false);
+      setSkipIntroLabel("skip");
+      updateSkipIntroButton();
+      return;
+    }
+
+    // fallback para marcação local antiga (por título)
     const localEnd = getLocalIntroEnd(animeTitle);
     if (token !== p.skipFetchToken) return;
     if (localEnd != null) {
       p.introInterval = { start: 0, end: localEnd, source: "local" };
       p.markIntroMode = false;
+      setMarkBtnActive(false);
       setSkipIntroLabel("skip");
       updateSkipIntroButton();
       return;
     }
+
     if (token !== p.skipFetchToken) return;
     p.introInterval = null;
     p.markIntroMode = false;
+    setMarkBtnActive(false);
     setSkipIntroLabel("skip");
     updateSkipIntroButton();
   } finally {
@@ -78,16 +97,27 @@ function effectiveIntroEnd(duration) {
   return null;
 }
 
+function clearSkipIntroAutoHide() {
+  if (p.skipIntroShowTimer) {
+    clearTimeout(p.skipIntroShowTimer);
+    p.skipIntroShowTimer = null;
+  }
+}
+
 export function updateSkipIntroButton() {
   const video = $video();
   const modal = $modal();
   if (!video || !modal || modal.hidden) {
+    clearSkipIntroAutoHide();
+    p.skipIntroShownForInterval = false;
     setSkipIntroVisible(false);
     return;
   }
   const duration = video.duration;
   const t = video.currentTime || 0;
   if (!Number.isFinite(duration) || duration < SKIP_INTRO_MIN_DURATION || video.ended) {
+    clearSkipIntroAutoHide();
+    p.skipIntroShownForInterval = false;
     setSkipIntroVisible(false);
     return;
   }
@@ -95,27 +125,57 @@ export function updateSkipIntroButton() {
   const endProbe = effectiveIntroEnd(duration);
   if (p.introSkipped && endProbe != null && t < endProbe - SKIP_INTRO_HIDE_BEFORE) {
     p.introSkipped = false;
+    p.skipIntroShownForInterval = false;
   }
 
   if (p.markIntroMode) {
+    clearSkipIntroAutoHide();
+    p.skipIntroShownForInterval = false;
     setSkipIntroLabel("mark");
     setSkipIntroVisible(t >= 15 && t < duration - 10);
     return;
   }
 
   if (p.introSkipped) {
+    clearSkipIntroAutoHide();
     setSkipIntroVisible(false);
     return;
   }
 
   const end = endProbe;
   if (end == null) {
+    clearSkipIntroAutoHide();
+    p.skipIntroShownForInterval = false;
+    setSkipIntroVisible(false);
+    return;
+  }
+
+  // Reset when completely past the intro window
+  if (t >= end + 2) {
+    p.skipIntroShownForInterval = false;
+    clearSkipIntroAutoHide();
     setSkipIntroVisible(false);
     return;
   }
 
   setSkipIntroLabel("skip");
-  setSkipIntroVisible(t >= 0 && t < end - SKIP_INTRO_HIDE_BEFORE);
+  const inIntroWindow = t < end - SKIP_INTRO_HIDE_BEFORE;
+  if (inIntroWindow) {
+    if (!p.skipIntroShownForInterval) {
+      p.skipIntroShownForInterval = true;
+      p.skipIntroShowTimer = setTimeout(() => {
+        p.skipIntroShowTimer = null;
+        setSkipIntroVisible(false);
+      }, 5000);
+    }
+    // Only show while the auto-hide timer hasn't fired
+    if (p.skipIntroShowTimer) {
+      setSkipIntroVisible(true);
+    }
+  } else {
+    clearSkipIntroAutoHide();
+    setSkipIntroVisible(false);
+  }
 }
 
 function toastSkip(msg) {
@@ -142,13 +202,19 @@ export async function skipIntro() {
       return;
     }
     const title = p.activeOpts?.title || "";
+    const seasonNumber = p.activeOpts?.playMeta?.season_number || 1;
+    // salva por temporada no backend + cache local
+    saveOpeningMark(title, seasonNumber, end);
+    // mantém também no localStorage legado para compatibilidade offline
     saveLocalIntroEnd(title, end);
-    p.introInterval = { start: 0, end, source: "local" };
+    p.introInterval = { start: 0, end, source: "season" };
     p.markIntroMode = false;
+    setMarkBtnActive(false);
     p.introSkipped = true;
+    clearSkipIntroAutoHide();
     setSkipIntroVisible(false);
     setSkipIntroLabel("skip");
-    toastSkip(`Opening salva (~${Math.round(end)}s) para este anime`);
+    toastSkip(`Opening salva (~${Math.round(end)}s) — ${title} (T${seasonNumber})`);
     video.play().catch(() => {});
     import("./progress.js").then((m) => m.reportProgress(false));
     return;
@@ -161,6 +227,7 @@ export async function skipIntro() {
 
   const end = effectiveIntroEnd(duration);
   if (end == null) {
+    clearSkipIntroAutoHide();
     setSkipIntroVisible(false);
     return;
   }
@@ -169,6 +236,7 @@ export async function skipIntro() {
   const src = p.introInterval?.source || "default";
   try { video.currentTime = target; } catch { /* ignore */ }
   p.introSkipped = true;
+  clearSkipIntroAutoHide();
   setSkipIntroVisible(false);
   if (src === "default") {
     toastSkip(`Opening sem marcação · pulou ${Math.round(target)}s`);
@@ -176,6 +244,8 @@ export async function skipIntro() {
     const m = Math.floor(target / 60);
     const s = Math.round(target % 60);
     toastSkip(`Abertura pulada · ${m}:${String(s).padStart(2, "0")}`);
+  } else if (src === "season") {
+    toastSkip(`Abertura pulada · ${Math.round(target)}s (temporada)`);
   } else if (src === "local") {
     toastSkip(`Abertura pulada · ${Math.round(target)}s`);
   }
@@ -236,7 +306,9 @@ export function scheduleIntroResolve({ force = false } = {}) {
       : p.activeOpts?.episodeLength || null;
   const knownMal = p.activeOpts?.malId || p.activeOpts?.playMeta?.mal_id || null;
 
-  const key = `${knownMal || animeTitle}|${episodeNumber || "?"}|${
+  const seasonNumber = p.activeOpts?.playMeta?.season_number || 1;
+
+  const key = `${knownMal || animeTitle}|${episodeNumber || "?"}|s${seasonNumber}|${
     episodeLength ? Math.round(episodeLength) : 0
   }`;
 
@@ -261,7 +333,7 @@ export function scheduleIntroResolve({ force = false } = {}) {
     try {
       const malId = await resolveMalIdIfNeeded(animeTitle, knownMal);
       if (token !== p.skipFetchToken) return;
-      await resolveIntroInterval({ malId, episodeNumber, animeTitle, episodeLength, token });
+      await resolveIntroInterval({ malId, episodeNumber, animeTitle, seasonNumber, episodeLength, token });
     } finally {
       if (token === p.skipFetchToken) p.introResolveSettled = true;
     }

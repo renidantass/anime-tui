@@ -301,10 +301,12 @@
                 Voltar
               </button>
 
-              <div class="detail-hero" id="detail-hero">
+              <div class="detail-hero is-loading" id="detail-hero">
                 <div class="detail-bg" id="detail-bg"></div>
                 <div class="detail-card">
-                  <img class="detail-poster" id="detail-poster" alt="" />
+                  <div class="detail-poster-wrap" id="detail-poster-wrap">
+                    <img class="detail-poster" id="detail-poster" alt="" />
+                  </div>
                   <div class="detail-info">
                     <p class="eyebrow" id="detail-eyebrow">Anime</p>
                     <h2 id="detail-title"></h2>
@@ -361,6 +363,7 @@
             <span id="player-ep" class="player-ep"></span>
           </div>
           <div class="player-top-actions">
+            <button type="button" class="player-mark-btn" id="btn-mark-intro" aria-label="Marcar fim da abertura" title="Marcar onde termina a opening deste anime">Marcar OP</button>
             <button type="button" class="player-speed-btn" id="player-speed" aria-label="Velocidade">1×</button>
           </div>
         </div>

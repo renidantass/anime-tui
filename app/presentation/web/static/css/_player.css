@@ -344,6 +344,42 @@
   border-color: var(--cyan);
 }
 
+.player-mark-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 28px;
+  padding: 0 0.55rem;
+  border-radius: var(--radius);
+  font-family: var(--font-tech);
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--muted);
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid var(--line-strong);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s, box-shadow 0.15s;
+}
+
+.player-mark-btn:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.25);
+}
+
+.player-mark-btn.is-active {
+  color: var(--cyan);
+  background: var(--cyan-soft);
+  border-color: rgba(0, 240, 255, 0.35);
+  box-shadow: 0 0 12px rgba(0, 240, 255, 0.12);
+}
+
+.player-mark-btn.is-active:hover {
+  background: rgba(0, 240, 255, 0.14);
+  border-color: rgba(0, 240, 255, 0.5);
+  box-shadow: 0 0 16px rgba(0, 240, 255, 0.2);
+}
+
 .player-volume-wrap {
   display: flex;
   align-items: center;

@@ -99,10 +99,19 @@ export const api = {
     request(`/api/sources/${encodeURIComponent(id)}/health`, {
       method: "POST",
     }),
+  openingMark: (animeTitle, seasonNumber = 1) => {
+    const q = new URLSearchParams();
+    q.set("anime_title", animeTitle);
+    q.set("season_number", String(seasonNumber));
+    return request(`/api/opening-marks?${q.toString()}`);
+  },
+  saveOpeningMark: (body) =>
+    request("/api/opening-marks", { method: "POST", body: JSON.stringify(body) }),
 };
 
 export function imgUrl(url) {
   if (!url) return "";
   if (url.startsWith("data:") || url.startsWith("/")) return url;
+  if (url.startsWith("//")) return `/api/image?url=${encodeURIComponent("https:" + url)}`;
   return `/api/image?url=${encodeURIComponent(url)}`;
 }

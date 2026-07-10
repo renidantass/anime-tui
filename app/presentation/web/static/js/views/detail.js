@@ -1,6 +1,6 @@
 import { api, imgUrl } from "../api.js";
 import { state } from "../state.js";
-import { $, $$, escapeHtml, PLACEHOLDER_POSTER } from "../utils/dom.js";
+import { $, $$, escapeHtml, PLACEHOLDER_POSTER, skeletonEpisodes } from "../utils/dom.js";
 import { normalizeWatchTitles, resolveEpisodeNumber, formatEpLabel, isOnlyEpisodeLabel, cleanTitleForAniList, stripTitleVariants } from "../utils/titles.js";
 
 function setText(sel, text) {
@@ -14,10 +14,13 @@ function setHtml(sel, html) {
 }
 
 function resetDetailShell() {
+  const hero = $("#detail-hero");
+  if (hero) hero.classList.add("is-loading");
+
   setText("#detail-title", "Carregando…");
   setText("#detail-desc", "");
   setText("#detail-rating", "");
-  setHtml("#detail-episodes", "");
+  setHtml("#detail-episodes", skeletonEpisodes(6));
   setHtml("#detail-meta-row", "");
   setHtml("#detail-tags", "");
   setHtml("#detail-sources", "");
@@ -44,10 +47,22 @@ function resetDetailShell() {
   if (posterEl) {
     posterEl.removeAttribute("src");
     posterEl.alt = "";
-    posterEl.style.display = "none";
+    posterEl.style.opacity = "0";
   }
   const bg = $("#detail-bg");
   if (bg) bg.style.backgroundImage = "";
+}
+
+function findEpMeta(epMeta, num) {
+  if (num == null) return null;
+  const str = String(num);
+  const keys = [str, String(Number(str))];
+  if (str.length === 1) keys.push(`0${str}`);
+  for (const k of keys) {
+    const m = epMeta[k];
+    if (m?.thumbnail) return m;
+  }
+  return null;
 }
 
 function renderSeasonEpisodes(season) {
@@ -69,9 +84,9 @@ function renderSeasonEpisodes(season) {
       ep.title,
       num
     );
-    const meta = epMeta[String(labels.number)] || epMeta[String(num)] || null;
+    const meta = findEpMeta(epMeta, labels.number) || findEpMeta(epMeta, num);
 
-    const rawThumb = (ep.image || "").trim() || (meta?.thumbnail || "").trim();
+    const rawThumb = (ep.image || "").trim() || (meta?.thumbnail || "").trim() || (state.detail?.image || "").trim();
     const thumb = rawThumb ? imgUrl(rawThumb) : "";
 
     const generic =
@@ -98,11 +113,7 @@ function renderSeasonEpisodes(season) {
 
     btn.innerHTML = `
       <div class="ep-thumb" data-thumb="${escapeHtml(thumb)}">
-        ${
-          thumb
-            ? `<span class="ep-num">Ep ${escapeHtml(numLabel)}</span>`
-            : `<span class="ep-placeholder-num">${escapeHtml(numLabel)}</span>`
-        }
+        <span class="ep-placeholder-num">${escapeHtml(numLabel)}</span>
       </div>
       <div class="ep-info">
         <div class="ep-kicker">${escapeHtml(subLine || `Episódio ${numLabel}`)}</div>
@@ -117,9 +128,24 @@ function renderSeasonEpisodes(season) {
     const thumbEl = btn.querySelector(".ep-thumb");
     if (thumbEl && thumb) {
       const obs = new IntersectionObserver((entries) => {
-        if (entries[0].isIntersecting) {
-          thumbEl.style.backgroundImage = `url('${thumb}')`;
-          thumbEl.classList.add("has-img");
+        if (entries[0]?.isIntersecting) {
+          thumbEl.classList.add("is-loading");
+          const img = new Image();
+          img.onload = () => {
+            if (!thumbEl.isConnected) return;
+            thumbEl.style.backgroundImage = `url('${thumb}')`;
+            thumbEl.classList.add("has-img");
+            thumbEl.classList.remove("is-loading");
+            const badge = document.createElement("span");
+            badge.className = "ep-num";
+            badge.textContent = `Ep ${numLabel}`;
+            thumbEl.appendChild(badge);
+          };
+          img.onerror = () => {
+            if (!thumbEl.isConnected) return;
+            thumbEl.classList.remove("is-loading");
+          };
+          img.src = thumb;
           obs.disconnect();
         }
       }, { rootMargin: "200px" });
@@ -161,6 +187,9 @@ function renderSeasonEpisodes(season) {
 export function renderDetail(detail, preferredSource) {
   if (!detail) return;
 
+  const hero = $("#detail-hero");
+  if (hero) hero.classList.remove("is-loading");
+
   setText("#detail-title", detail.title || "Sem título");
   const rating = String(detail.rating || "").trim();
   setText("#detail-rating", rating ? `★ ${rating}` : "");
@@ -186,7 +215,7 @@ export function renderDetail(detail, preferredSource) {
   const posterEl = $("#detail-poster");
   if (posterEl) {
     posterEl.alt = detail.title || "";
-    posterEl.style.display = "";
+    posterEl.style.opacity = "";
     posterEl.loading = "lazy";
     requestAnimationFrame(() => {
       posterEl.onerror = () => { posterEl.src = PLACEHOLDER_POSTER; };

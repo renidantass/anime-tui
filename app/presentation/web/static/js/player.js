@@ -3,10 +3,10 @@ import {
   $centeredBtn, $progress, $progressFill, $progressBuffer, $progressThumb, $progressHover,
   $timeCurrent, $timeDuration, $btnPlay,
   $btnMute, $volumeSlider, $volumeFill, $volumeThumb,
-  $btnPip, $btnDownload, $btnFullscreen, $iconFsEnter, $iconFsExit, $hint,
+  $btnPip, $btnDownload, $btnFullscreen, $iconFsEnter, $iconFsExit, $hint, $markBtn,
   destroyHls, setVideoReady,
-  ensureSkipButtonStructure, setSkipIntroLabel,
-  setSkipIntroVisible, getLocalIntroEnd, SKIP_INTRO_DEFAULT_END, SKIP_INTRO_HIDE_BEFORE,
+  ensureSkipButtonStructure, setSkipIntroLabel, setMarkBtnActive,
+  setSkipIntroVisible, getLocalIntroEnd, getOpeningMark, SKIP_INTRO_DEFAULT_END, SKIP_INTRO_HIDE_BEFORE,
   showLoading, showFallback,
 } from "./player/state.js";
 import { skipIntro, scheduleIntroResolve, updateSkipIntroButton } from "./player/intro.js";
@@ -216,6 +216,20 @@ export function initPlayer({ onClose } = {}) {
   skipBtn?.addEventListener("pointerup", clearMarkHold);
   skipBtn?.addEventListener("pointerleave", clearMarkHold);
   skipBtn?.addEventListener("pointercancel", clearMarkHold);
+
+  const markBtn = $markBtn();
+  markBtn?.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (p.markIntroMode) {
+      skipIntro().catch(() => {});
+    } else {
+      p.markIntroMode = true;
+      setSkipIntroLabel("mark");
+      setMarkBtnActive(true);
+      updateSkipIntroButton();
+    }
+  });
 
   const shell = document.querySelector(".player-shell");
   if (shell) {
@@ -495,11 +509,15 @@ export function closePlayer() {
   p.retrying = false;
   p.introSkipped = false;
   p.markIntroMode = false;
+  setMarkBtnActive(false);
   p.introInterval = null;
   p.introResolvePromise = null;
   p.introResolveKey = "";
   p.introResolveSettled = false;
   p.skipFetchToken += 1;
+  p.skipIntroShownForInterval = false;
+  clearTimeout(p.skipIntroShowTimer);
+  p.skipIntroShowTimer = null;
   setSkipIntroVisible(false);
   hideEnded();
   hideBuffering();
@@ -523,11 +541,15 @@ export async function openPlayer(opts) {
   p.retrying = false;
   p.introSkipped = false;
   p.markIntroMode = false;
+  setMarkBtnActive(false);
   p.introInterval = null;
   p.introResolvePromise = null;
   p.introResolveKey = "";
   p.introResolveSettled = false;
   p.skipFetchToken += 1;
+  p.skipIntroShownForInterval = false;
+  clearTimeout(p.skipIntroShowTimer);
+  p.skipIntroShowTimer = null;
   setSkipIntroVisible(false);
   ensureSkipButtonStructure();
   setSkipIntroLabel("skip");

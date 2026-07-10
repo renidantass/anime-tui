@@ -7,6 +7,7 @@ from fastapi import FastAPI, Request
 from app.presentation.web.routes import (
     episodes_router,
     history_router,
+    opening_marks_router,
     playback_router,
     sources_router,
     watch_later_router,
@@ -31,6 +32,7 @@ def create_app(lifespan=None) -> FastAPI:
     app.include_router(playback_router)
     app.include_router(episodes_router)
     app.include_router(history_router)
+    app.include_router(opening_marks_router)
     app.include_router(sources_router)
     app.include_router(watch_later_router)
 

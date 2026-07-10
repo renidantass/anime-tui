@@ -56,3 +56,14 @@ class WatchLaterAddRequest(BaseModel):
     source_name: str = ""
     source_link: str = ""
     source_color: str = ""
+
+
+class OpeningMarkSaveRequest(BaseModel):
+    anime_title: str
+    season_number: int = 1
+    end_seconds: float
+
+
+class OpeningMarkGetRequest(BaseModel):
+    anime_title: str
+    season_number: int = 1

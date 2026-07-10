@@ -13,21 +13,21 @@ from fastapi import FastAPI
 
 from app.application._executor import get_executor
 from app.application.anime_service import AnimeService
+from app.application.opening_mark_service import OpeningMarkService
 from app.application.play_orchestration_service import PlayOrchestrationService
 from app.application.skip_times_service import SkipTimesService
 from app.application.stream_resolution_service import StreamResolutionService
 from app.application.watch_history_service import WatchHistoryService
 from app.application.watch_later_service import WatchLaterService
 from app.infrastructure.anilist_client import GENRE_LABELS_PT, get_anilist_client
-from app.infrastructure.aniskip_client import fetch_skip_times
-from app.infrastructure.config import load as load_config, save as save_config
+from app.infrastructure.config import load as load_config
+from app.infrastructure.config import save as save_config
 from app.infrastructure.player import (
     PLAYER_AUTO,
     PLAYER_BROWSER,
     PLAYER_LABELS,
     install_hint,
     is_player_available,
-    open_video,
     selectable_backends,
 )
 from app.infrastructure.security import _MAX_IMAGE_BYTES, is_safe_url, safe_get_bytes
@@ -85,6 +85,7 @@ def web_lifespan():
         svc = build_anime_service()
         hst = WatchHistoryService()
         wl = WatchLaterService()
+        oms = OpeningMarkService()
         sessions = StreamSessionStore()
         resolution = StreamResolutionService(
             probe=probe_stream,
@@ -103,6 +104,7 @@ def web_lifespan():
         app.state.service = svc
         app.state.history = hst
         app.state.watch_later = wl
+        app.state.opening_mark_service = oms
         app.state.sessions = sessions
         app.state.play_orchestrator = orchestrator
         app.state.skip_times = st
