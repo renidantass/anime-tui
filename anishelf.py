@@ -152,17 +152,27 @@ class AnishelfApp:
     def run(self) -> None:
         configure_logging()
         icon = _make_icon(False)
+
         self._tray = pystray.Icon(
             "anishelf",
             icon,
             "Anishelf",
             menu=pystray.Menu(
                 pystray.MenuItem("Iniciar servidor", self._start),
-                pystray.MenuItem("Abrir AniShelf", self._open_browser),
+                pystray.MenuItem(
+                    "Abrir AniShelf", self._open_browser, default=True
+                ),
                 pystray.MenuItem("Parar servidor", self._stop),
                 pystray.Menu.SEPARATOR,
                 pystray.MenuItem("Sair", self._quit),
             ),
+        )
+
+        logger.info(
+            "backend=%s HAS_MENU=%s HAS_DEFAULT_ACTION=%s",
+            type(self._tray).__name__,
+            pystray.Icon.HAS_MENU,
+            pystray.Icon.HAS_DEFAULT_ACTION,
         )
         self._tray.run()
 
