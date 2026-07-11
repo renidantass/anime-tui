@@ -150,6 +150,111 @@ animes-tui
 
 ## Arquitetura
 
+### Diagrama de Contexto (C4 – Nível 1)
+
+```mermaid
+flowchart TB
+    User["👤 Usuário<br/>Pessoa que assiste animes"]
+
+    AniShelf["🖥️ Animes-TUI / AniShelf<br/>Cliente para assistir animes<br/>com histórico, favoritos e player integrado"]
+
+    AniList["🌐 AniList API<br/>GraphQL — metadados,<br/>sinopse, nota, capa, gêneros"]
+    AniSkip["🌐 AniSkip API<br/>Timestamps de abertura<br/>e encerramento"]
+    AnimeSources["🌐 Fontes de Anime<br/>animesonlinecc, goyabu,<br/>animeyabu, topanimes, etc."]
+    Blogger["🌐 Blogger / BloggerPlayer<br/>Hospedagem de vídeos<br/>embutidos nos posts"]
+
+    User -->|"Assiste, busca,<br/>favorita, gerencia"| AniShelf
+    AniShelf -->|"Consulta metadados<br/>GraphQL"| AniList
+    AniShelf -->|"Obtém timestamps<br/>de skip"| AniSkip
+    AniShelf -->|"Coleta episódios<br/>e links de stream"| AnimeSources
+    AniShelf -->|"Resolve streams HLS<br/>embutidos"| Blogger
+```
+
+### Diagrama de Container (C4 – Nível 2)
+
+```mermaid
+flowchart TB
+    subgraph User[" "]
+        Person["👤 Usuário"]
+    end
+
+    subgraph AniShelf["🖥️ Animes-TUI / AniShelf"]
+        WebUI["Vue: Web Frontend<br/>SPA — JavaScript vanilla<br/>ES modules, CSS customizado<br/>Player com HLS.js"]
+        TUI["Vue: TUI Frontend<br/>Interface de terminal<br/>Textual (Python)"]
+        Tray["Vue: System Tray App<br/>Bandeja do sistema<br/>pystray + uvicorn"]
+
+        API["Contêiner: FastAPI Backend<br/>Servidor REST — uvicorn<br/>Rotas /api/*<br/>Composição em bootstrap.py"]
+
+        subgraph AppLayer["Camada de Aplicação"]
+            AnimeSvc["AnimeService"]
+            HistorySvc["WatchHistoryService"]
+            LaterSvc["WatchLaterService"]
+            OrchSvc["PlayOrchestrationService"]
+            StreamSvc["StreamResolutionService"]
+            SkipSvc["SkipTimesService"]
+            OpenSvc["OpeningMarkService"]
+        end
+
+        subgraph Infra["Camada de Infraestrutura"]
+            Sources["Source Scrapers<br/>Base + Dooplay<br/>por site"]
+            AniListClient["AniList Client<br/>GraphQL"]
+            AniSkipClient["AniSkip Client<br/>REST"]
+            HLSProxy["HLS Proxy<br/>Reescrita de m3u8"]
+            ImageProxy["Image Proxy<br/>Bypass CORS/referer"]
+            StreamProbe["Stream Probe<br/>Head requests"]
+            BloggerExt["Blogger Extractor<br/>Resolução de players"]
+            Player["Player Backends<br/>mpv, browser, download"]
+            Sessions["Stream Sessions<br/>Tokens por episódio"]
+        end
+
+        Storage["🗄️ JSON Local<br/>watch_history.json<br/>watch_later.json<br/>~/.config/animes-tui/<br/>~/.cache/animes-tui/"]
+    end
+
+    subgraph External["Sistemas Externos"]
+        ExtAniList["🌐 AniList API"]
+        ExtAniSkip["🌐 AniSkip API"]
+        ExtSources["🌐 Fontes de Anime"]
+        ExtBlogger["🌐 Blogger"]
+    end
+
+    Person -->|"HTTP :8765"| WebUI
+    Person -->|"Terminal"| TUI
+    Person -->|"System tray"| Tray
+
+    Tray -->|"Inicia/Para"| API
+    TUI -->|"Chama serviços"| API
+    WebUI -->|"REST /api/*"| API
+
+    API --> AnimeSvc
+    API --> HistorySvc
+    API --> LaterSvc
+    API --> OrchSvc
+    API --> SkipSvc
+    API --> OpenSvc
+    API --> Storage
+
+    AnimeSvc --> Sources
+    AnimeSvc --> AniListClient
+    StreamSvc --> StreamProbe
+    StreamSvc --> BloggerExt
+    OrchSvc --> Sessions
+    OrchSvc --> HistorySvc
+    OrchSvc --> StreamSvc
+    SkipSvc --> AniSkipClient
+
+    Sources -->|"Scraping HTTP"| ExtSources
+    AniListClient -->|"GraphQL"| ExtAniList
+    AniSkipClient -->|"REST"| ExtAniSkip
+    BloggerExt -->|"Resolve iframe"| ExtBlogger
+
+    WebUI -->|"Proxy de imagem"| ImageProxy
+    WebUI -->|"HLS via proxy"| HLSProxy
+    HLSProxy -->|"Stream segments"| ExtBlogger
+    ImageProxy -->|"Imagens"| ExtAniList
+```
+
+### Resumo textual
+
 - **Backend** — FastAPI com rotas REST (`/api/*`)
 - **Frontend** — JavaScript vanilla com ES modules, sem framework externo
 - **Metadados** — AniList GraphQL API (sinopse, capa, nota, gêneros, temporada, franquia)
