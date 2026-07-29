@@ -5,7 +5,7 @@ import {
   $btnMute, $volumeSlider, $volumeFill, $volumeThumb,
   $btnPip, $btnDownload, $btnFullscreen, $iconFsEnter, $iconFsExit, $hint, $markBtn,
   destroyHls, setVideoReady,
-  ensureSkipButtonStructure, setSkipIntroLabel, setMarkBtnActive,
+  ensureSkipButtonStructure, setSkipIntroLabel, setMarkBtnActive, voteOpeningMark,
   setSkipIntroVisible, getLocalIntroEnd, getOpeningMark, SKIP_INTRO_DEFAULT_END, SKIP_INTRO_HIDE_BEFORE,
   showLoading, showFallback,
 } from "./player/state.js";
@@ -229,6 +229,13 @@ export function initPlayer({ onClose } = {}) {
       setMarkBtnActive(true);
       updateSkipIntroButton();
     }
+  });
+
+  document.querySelector("#opening-upvote")?.addEventListener("click", (e) => {
+    e.preventDefault(); e.stopPropagation(); voteOpeningMark(1);
+  });
+  document.querySelector("#opening-downvote")?.addEventListener("click", (e) => {
+    e.preventDefault(); e.stopPropagation(); voteOpeningMark(-1);
   });
 
   const shell = document.querySelector(".player-shell");

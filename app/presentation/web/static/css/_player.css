@@ -82,6 +82,27 @@
   flex: 1;
 }
 
+.opening-reputation {
+  display: inline-flex;
+  align-items: center;
+  gap: .35rem;
+  padding: .18rem .28rem;
+  border: 1px solid var(--line-strong);
+  background: rgba(2, 3, 5, .58);
+  color: var(--muted);
+  font: 600 .7rem var(--font-tech);
+}
+.opening-reputation button {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  padding: .22rem .3rem;
+  font: inherit;
+}
+.opening-reputation button:hover { color: var(--cyan); }
+.opening-reputation button:last-child:hover { color: var(--sakura-2); }
+
 #player-title {
   font-weight: 700;
   font-size: 1rem;

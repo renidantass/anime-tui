@@ -71,4 +71,8 @@ def reset_circuit(state: AppState, identifier: str):
 def toggle_source(state: AppState, identifier: str, body: SourceToggle):
     _require_known_source(state.service, identifier)
     state.service.set_enabled(identifier, body.enabled)
+    from app.infrastructure.config import load as load_config, save as save_config
+    config = load_config(mongo_db=state.mongo_db, user_id=state.current_user["id"])
+    config.enabled_sources = [e.identifier for e in state.service.get_all_source_entries() if state.service.is_enabled(e.identifier)]
+    save_config(config, mongo_db=state.mongo_db, user_id=state.current_user["id"])
     return {"identifier": identifier, "enabled": body.enabled}

@@ -11,20 +11,28 @@ from app.domain.watch_later import WatchLaterEntry
 
 
 class WatchLaterService:
-    def __init__(self, file_path: str | None = None):
+    def __init__(self, file_path: str | None = None, *, mongo_db=None, user_id: str | None = None):
         self._lock = threading.RLock()
-        self._file_path = Path(
-            file_path
-            or os.path.join(os.path.expanduser("~"), ".anime-feed-reader", "watch_later.json")
-        )
+        self._file_path = Path(file_path) if file_path else None
         self._entries: list[WatchLaterEntry] = []
+        self._mongo_db = mongo_db
+        self._user_id = user_id
         self._dirty = False
         self._load()
 
     def _directory(self) -> Path:
+        if self._file_path is None:
+            raise RuntimeError("Serviço sem repositório configurado")
         return self._file_path.parent
 
     def _load(self) -> None:
+        if self._mongo_db is not None and self._user_id:
+            docs = self._mongo_db.watch_later.find({"user_id": self._user_id})
+            self._entries = [WatchLaterEntry.from_dict({k: v for k, v in d.items() if k not in ("_id", "user_id", "anime_key")}) for d in docs]
+            return
+        if self._file_path is None:
+            self._entries = []
+            return
         if not self._file_path.exists():
             self._entries = []
             return
@@ -121,6 +129,18 @@ class WatchLaterService:
                 self._schedule_save()
 
     def _save_entries(self, entries: list[WatchLaterEntry]) -> None:
+        if self._mongo_db is not None and self._user_id:
+            collection = self._mongo_db.watch_later
+            collection.delete_many({"user_id": self._user_id})
+            if entries:
+                collection.insert_many([
+                    {"user_id": self._user_id, "anime_key": e.anime_title.strip().casefold(),
+                     "anime_title": e.anime_title, "anime_image": e.anime_image,
+                     "source_name": e.source_name, "source_link": e.source_link,
+                     "source_color": e.source_color, "added_at": e.added_at}
+                    for e in entries
+                ])
+            return
         self._directory().mkdir(parents=True, exist_ok=True)
         data = {
             "entries": [

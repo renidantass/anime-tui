@@ -5,6 +5,11 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 
 
+class AuthRequest(BaseModel):
+    email: str
+    password: str
+
+
 class PlaySourceCandidate(BaseModel):
     name: str = ""
     link: str
@@ -67,3 +72,8 @@ class OpeningMarkSaveRequest(BaseModel):
 class OpeningMarkGetRequest(BaseModel):
     anime_title: str
     season_number: int = 1
+
+
+class OpeningMarkVoteRequest(BaseModel):
+    mark_id: str
+    value: int

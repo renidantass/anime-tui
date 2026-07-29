@@ -8,20 +8,20 @@ from __future__ import annotations
 
 import logging
 from contextlib import asynccontextmanager
+from getpass import getpass
 
 from fastapi import FastAPI
 
 from app.application._executor import get_executor
 from app.application.anime_service import AnimeService
-from app.application.opening_mark_service import OpeningMarkService
-from app.application.play_orchestration_service import PlayOrchestrationService
 from app.application.skip_times_service import SkipTimesService
 from app.application.stream_resolution_service import StreamResolutionService
 from app.application.watch_history_service import WatchHistoryService
-from app.application.watch_later_service import WatchLaterService
 from app.infrastructure.anilist_client import GENRE_LABELS_PT, get_anilist_client
 from app.infrastructure.config import load as load_config
 from app.infrastructure.config import save as save_config
+from app.infrastructure.mongodb import get_database
+from app.infrastructure.auth import authenticate
 from app.infrastructure.player import (
     PLAYER_AUTO,
     PLAYER_BROWSER,
@@ -45,9 +45,9 @@ def _make_anon_lambda(fn, *args):
     return lambda: fn(*args)
 
 
-def build_anime_service() -> AnimeService:
+def build_anime_service(config=None) -> AnimeService:
     return AnimeService(
-        source_discovery=SourceDiscovery(config=load_config()),
+        source_discovery=SourceDiscovery(config=config or load_config()),
         anilist=get_anilist_client(),
         genre_labels=GENRE_LABELS_PT,
     )
@@ -75,17 +75,22 @@ def build_image_deps() -> dict:
 
 
 def build_tui_wiring() -> tuple[AnimeService, WatchHistoryService]:
-    return build_anime_service(), WatchHistoryService()
+    _client, db = get_database()
+    email = input("E-mail: ").strip()
+    password = getpass("Senha: ")
+    user = authenticate(email, password)
+    if not user:
+        raise RuntimeError("E-mail ou senha inválidos")
+    config = load_config(mongo_db=db, user_id=user["id"])
+    return build_anime_service(config), WatchHistoryService(mongo_db=db, user_id=user["id"])
 
 
 def web_lifespan():
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         logging.basicConfig(level=logging.INFO)
+        client, db = get_database()
         svc = build_anime_service()
-        hst = WatchHistoryService()
-        wl = WatchLaterService()
-        oms = OpeningMarkService()
         sessions = StreamSessionStore()
         resolution = StreamResolutionService(
             probe=probe_stream,
@@ -93,20 +98,16 @@ def web_lifespan():
                 ctx, resolve_blogger=resolve_blogger_context
             ),
         )
-        orchestrator = PlayOrchestrationService(
-            anime_service=svc,
-            history_service=hst,
-            stream_resolution=resolution,
-            create_token=lambda **kw: sessions.create(StreamSession(**kw)),
-        )
         st = SkipTimesService()
 
         app.state.service = svc
-        app.state.history = hst
-        app.state.watch_later = wl
-        app.state.opening_mark_service = oms
+        app.state.mongo_db = db
+        app.state.mongo_client = client
+        app.state.user_services = {}
+        app.state.resolution = resolution
+        app.state.StreamSession = StreamSession
         app.state.sessions = sessions
-        app.state.play_orchestrator = orchestrator
+        app.state.play_orchestrator = None
         app.state.skip_times = st
         app.state.sources_ready = False
         app.state.is_safe_url = is_safe_url
@@ -129,6 +130,7 @@ def web_lifespan():
             logger.info("Thread pool finalizado")
         except RuntimeError:
             logger.warning("Thread pool ja estava finalizado")
+        client.close()
 
     return lifespan
 

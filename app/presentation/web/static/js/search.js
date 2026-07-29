@@ -5,21 +5,14 @@ import { animeCard } from "./cards.js";
 import { toast } from "./toast.js";
 
 let _sourcesReadyPromise = null;
+let _recentSearches = [];
 
 function saveSearchQuery(q) {
-  const key = "anishelf.recentSearches";
-  try {
-    const list = JSON.parse(localStorage.getItem(key) || "[]");
-    const filtered = list.filter((s) => s !== q);
-    filtered.unshift(q);
-    localStorage.setItem(key, JSON.stringify(filtered.slice(0, 5)));
-  } catch { /* ignore */ }
+  _recentSearches = [q, ..._recentSearches.filter((s) => s !== q)].slice(0, 5);
 }
 
 function loadSearchHistory() {
-  try {
-    return JSON.parse(localStorage.getItem("anishelf.recentSearches") || "[]");
-  } catch { return []; }
+  return _recentSearches;
 }
 
 function renderSearchHistory() {

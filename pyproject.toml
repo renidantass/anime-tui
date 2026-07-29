@@ -6,8 +6,11 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "beautifulsoup4>=4.15.0",
+    "bcrypt>=4.2.0",
     "fastapi>=0.115.0",
     "pillow>=12.3.0",
+    "pymongo>=4.10.0",
+    "PyJWT>=2.10.0",
     "pystray>=0.19",
     "requests>=2.34.2",
     "textual>=2.1.0",

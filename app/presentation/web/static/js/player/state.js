@@ -1,6 +1,5 @@
 import { $ } from "../utils/dom.js";
 
-const LOCAL_INTRO_KEY = "anishelf.introEnds";
 export const SKIP_INTRO_MIN_DURATION = 180;
 export const SKIP_INTRO_HIDE_BEFORE = 2;
 export const SKIP_INTRO_DEFAULT_END = 85;
@@ -22,6 +21,7 @@ export const p = {
   controlsIdleTimer: null,
   skipIntroShowTimer: null,
   skipIntroShownForInterval: false,
+  openingMarkInfo: null,
 };
 
 export const $video = () => $("#video");
@@ -49,6 +49,8 @@ export const $btnPip = () => $("#btn-pip");
 export const $btnDownload = () => $("#btn-download");
 export const $btnFullscreen = () => $("#btn-fullscreen");
 export const $markBtn = () => $("#btn-mark-intro");
+export const $openingReputation = () => $("#opening-reputation");
+export const $openingScore = () => $("#opening-score");
 export const $iconFsEnter = () => $("#icon-fs-enter");
 export const $iconFsExit = () => $("#icon-fs-exit");
 export const $hint = () => $("#player-hint");
@@ -148,11 +150,7 @@ export function animeStorageKey(title) {
 }
 
 export function loadLocalIntroMap() {
-  try {
-    const raw = localStorage.getItem(LOCAL_INTRO_KEY);
-    const obj = raw ? JSON.parse(raw) : {};
-    return obj && typeof obj === "object" ? obj : {};
-  } catch { return {}; }
+  return {};
 }
 
 export function getLocalIntroEnd(animeTitle) {
@@ -167,38 +165,28 @@ export function saveLocalIntroEnd(animeTitle, endSeconds) {
   if (!key) return;
   const end = Math.round(Number(endSeconds) * 10) / 10;
   if (!Number.isFinite(end) || end < 20 || end > 240) return;
-  const map = loadLocalIntroMap();
-  map[key] = end;
-  try {
-    localStorage.setItem(LOCAL_INTRO_KEY, JSON.stringify(map));
-  } catch { /* ignore */ }
+  // A marcação persistente é salva no MongoDB pelo endpoint autenticado.
 }
 
-// ── Marcação por temporada (backend + cache local) ───────────────────────────
+function renderOpeningMarkInfo(info) {
+  p.openingMarkInfo = info?.mark_id ? info : null;
+  const box = $openingReputation();
+  const score = $openingScore();
+  if (!box) return;
+  box.hidden = !p.openingMarkInfo;
+  if (score && p.openingMarkInfo) score.textContent = String(p.openingMarkInfo.score ?? 0);
+}
+
+// ── Marcação por temporada (backend autenticado) ─────────────────────────────
 
 export async function getOpeningMark(animeTitle, seasonNumber = 1) {
-  const cacheKey = `${animeStorageKey(animeTitle)}|s${Math.max(1, seasonNumber || 1)}`;
-  try {
-    const raw = localStorage.getItem("anishelf.openingMarksCache");
-    const cache = raw ? JSON.parse(raw) : {};
-    const cached = cache[cacheKey];
-    if (cached != null && Number.isFinite(cached) && cached >= 20 && cached <= 240) {
-      return cached;
-    }
-  } catch { /* ignore */ }
-
   try {
     const { api } = await import("../api.js");
     const data = await api.openingMark(animeTitle, seasonNumber);
+    renderOpeningMarkInfo(data);
     if (data?.has_mark && data.end_seconds != null) {
       const end = Number(data.end_seconds);
       if (Number.isFinite(end) && end >= 20 && end <= 240) {
-        try {
-          const raw = localStorage.getItem("anishelf.openingMarksCache") || "{}";
-          const cache = JSON.parse(raw);
-          cache[cacheKey] = end;
-          localStorage.setItem("anishelf.openingMarksCache", JSON.stringify(cache));
-        } catch { /* ignore */ }
         return end;
       }
     }
@@ -210,19 +198,19 @@ export async function saveOpeningMark(animeTitle, seasonNumber, endSeconds) {
   const end = Math.round(Number(endSeconds) * 10) / 10;
   if (!Number.isFinite(end) || end < 20 || end > 240) return;
   const season = Math.max(1, seasonNumber || 1);
-  const cacheKey = `${animeStorageKey(animeTitle)}|s${season}`;
-
-  // atualiza cache local imediatamente
-  try {
-    const raw = localStorage.getItem("anishelf.openingMarksCache") || "{}";
-    const cache = JSON.parse(raw);
-    cache[cacheKey] = end;
-    localStorage.setItem("anishelf.openingMarksCache", JSON.stringify(cache));
-  } catch { /* ignore */ }
-
   // persiste no backend
   try {
     const { api } = await import("../api.js");
-    await api.saveOpeningMark({ anime_title: animeTitle, season_number: season, end_seconds: end });
+    const data = await api.saveOpeningMark({ anime_title: animeTitle, season_number: season, end_seconds: end });
+    renderOpeningMarkInfo(data);
+  } catch { /* ignore */ }
+}
+
+export async function voteOpeningMark(value) {
+  if (!p.openingMarkInfo?.mark_id) return;
+  try {
+    const { api } = await import("../api.js");
+    const data = await api.voteOpeningMark({ mark_id: p.openingMarkInfo.mark_id, value });
+    renderOpeningMarkInfo(data);
   } catch { /* ignore */ }
 }

@@ -1,17 +1,12 @@
-"""Configuração persistente do animes-tui (~/.config/animes-tui/config.json)."""
+"""Configuração validada; a persistência de usuários é feita no MongoDB."""
 
 from __future__ import annotations
 
-import json
 import logging
 from dataclasses import dataclass, field
-from pathlib import Path
 from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
-
-_CONFIG_DIR = Path.home() / ".config" / "animes-tui"
-_CONFIG_FILE = _CONFIG_DIR / "config.json"
 
 _VALID_PLAYERS = frozenset(
     {
@@ -103,24 +98,17 @@ class Config:
         )
 
 
-def load() -> Config:
-    if not _CONFIG_FILE.exists():
+def load(*, mongo_db=None, user_id: str | None = None) -> Config:
+    """Carrega configuração do usuário; valores padrão não são persistidos localmente."""
+    if mongo_db is None or not user_id:
         return Config()
-    try:
-        with open(_CONFIG_FILE, encoding="utf-8") as f:
-            data = json.load(f)
-        return Config.from_dict(data if isinstance(data, dict) else {})
-    except Exception as e:
-        logger.warning("Falha ao carregar configuração: %s — usando padrão", e)
-        return Config()
+    data = mongo_db.user_configs.find_one({"user_id": user_id}) or {}
+    return Config.from_dict(data)
 
 
-def save(config: Config) -> None:
-    try:
-        _CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-        tmp = _CONFIG_FILE.with_name(f".{_CONFIG_FILE.name}.tmp")
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(config.to_dict(), f, indent=2, ensure_ascii=False)
-        tmp.replace(_CONFIG_FILE)
-    except Exception as e:
-        logger.warning("Falha ao salvar configuração: %s", e)
+def save(config: Config, *, mongo_db=None, user_id: str | None = None) -> None:
+    if mongo_db is None or not user_id:
+        return
+    mongo_db.user_configs.update_one(
+        {"user_id": user_id}, {"$set": {"user_id": user_id, **config.to_dict()}}, upsert=True
+    )

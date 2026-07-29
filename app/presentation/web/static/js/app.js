@@ -10,6 +10,7 @@ import { toast } from "./toast.js";
 import { onRoute, navigate } from "./router.js";
 import { openSearch, closeSearch, runSearch } from "./search.js";
 import { loadCalendarCheckPref, saveCalendarCheckPref } from "./views/calendar.js";
+import { mountUserIndicator, requireAuth } from "./auth.js";
 
 function bindUi() {
   initPlayer({
@@ -163,6 +164,8 @@ function bindUi() {
   });
 }
 
+const currentUser = await requireAuth();
+mountUserIndicator(currentUser);
 bindUi();
 onRoute();
 new Image().src = PLACEHOLDER_POSTER;

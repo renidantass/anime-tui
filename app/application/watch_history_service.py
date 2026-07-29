@@ -16,17 +16,18 @@ from app.domain.watch_history import WatchHistoryEntry
 
 
 class WatchHistoryService:
-    def __init__(self, file_path: str | None = None):
+    def __init__(self, file_path: str | None = None, *, mongo_db=None, user_id: str | None = None):
         self._lock = threading.Lock()
-        self._file_path = Path(
-            file_path
-            or os.path.join(os.path.expanduser("~"), ".anime-feed-reader", "watch_history.json")
-        )
+        self._file_path = Path(file_path) if file_path else None
         self._entries: list[WatchHistoryEntry] = []
+        self._mongo_db = mongo_db
+        self._user_id = user_id
         self._dirty = False
         self._load()
 
     def _directory(self) -> Path:
+        if self._file_path is None:
+            raise RuntimeError("Serviço sem repositório configurado")
         return self._file_path.parent
 
     @staticmethod
@@ -56,6 +57,14 @@ class WatchHistoryService:
         return anime_key, ep_key, (e.episode_link or "").strip()
 
     def _load(self) -> None:
+        if self._mongo_db is not None and self._user_id:
+            docs = self._mongo_db.watch_history.find({"user_id": self._user_id})
+            self._entries = [WatchHistoryEntry.from_dict({k: v for k, v in d.items() if k != "_id"}) for d in docs]
+            self._compact_duplicates()
+            return
+        if self._file_path is None:
+            self._entries = []
+            return
         if not self._file_path.exists():
             self._entries = []
             return
@@ -277,6 +286,22 @@ class WatchHistoryService:
                 self._schedule_save()
 
     def _save_entries(self, entries: list[WatchHistoryEntry]) -> None:
+        if self._mongo_db is not None and self._user_id:
+            collection = self._mongo_db.watch_history
+            collection.delete_many({"user_id": self._user_id})
+            if entries:
+                collection.insert_many([
+                    {"user_id": self._user_id, "anime_title": e.anime_title,
+                     "episode_title": e.episode_title, "episode_number": e.episode_number,
+                     "episode_link": e.episode_link, "source_name": e.source_name,
+                     "anime_image": e.anime_image, "watched_at": e.watched_at,
+                     "season_number": e.season_number, "source_color": e.source_color,
+                     "progress_seconds": e.progress_seconds, "duration_seconds": e.duration_seconds}
+                    for e in entries
+                ])
+            return
+        if self._file_path is None:
+            return
         self._directory().mkdir(parents=True, exist_ok=True)
         data = {
             "entries": [

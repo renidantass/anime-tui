@@ -28,6 +28,10 @@ async function request(path, options = {}) {
 }
 
 export const api = {
+  register: (body) => request("/api/auth/register", { method: "POST", body: JSON.stringify(body) }),
+  login: (body) => request("/api/auth/login", { method: "POST", body: JSON.stringify(body) }),
+  logout: () => request("/api/auth/logout", { method: "POST" }),
+  me: () => request("/api/auth/me"),
   health: () => request("/api/health"),
   episodes: () => request("/api/episodes"),
   search: (q) => request(`/api/search?q=${encodeURIComponent(q)}`),
@@ -107,6 +111,8 @@ export const api = {
   },
   saveOpeningMark: (body) =>
     request("/api/opening-marks", { method: "POST", body: JSON.stringify(body) }),
+  voteOpeningMark: (body) =>
+    request("/api/opening-marks/vote", { method: "POST", body: JSON.stringify(body) }),
 };
 
 export function imgUrl(url) {

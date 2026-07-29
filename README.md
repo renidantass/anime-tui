@@ -207,7 +207,7 @@ flowchart TB
             Sessions["Stream Sessions<br/>Tokens por episódio"]
         end
 
-        Storage["🗄️ JSON Local<br/>watch_history.json<br/>watch_later.json<br/>~/.config/animes-tui/<br/>~/.cache/animes-tui/"]
+        Storage["🗄️ MongoDB<br/>users<br/>watch_history<br/>watch_later<br/>opening_marks<br/>user_configs"]
     end
 
     subgraph External["Sistemas Externos"]
@@ -260,9 +260,17 @@ flowchart TB
 - **Metadados** — AniList GraphQL API (sinopse, capa, nota, gêneros, temporada, franquia)
 - **Skip times** — AniSkip API proxy via backend
 - **Stream** — resolução de links, HLS proxy, suporte a Blogger/BloggerPlayer
-- **Persistência** — JSON local:
-  - `~/.anime-feed-reader/watch_history.json` — histórico e progresso
-  - `~/.anime-feed-reader/watch_later.json` — favoritos
+- **Persistência** — MongoDB configurado por `MONGODB_URI`, com todos os documentos associados ao `user_id` autenticado:
+  - `users` — contas e hashes de senha
+  - `watch_history` — histórico e progresso
+  - `watch_later` — favoritos
+  - `opening_marks` — marcações de abertura por temporada
+    - marcações são compartilhadas; a seleção usa `score = upvotes - downvotes`
+    - cada usuário pode votar uma vez por marcação, podendo alterar seu voto
+  - `opening_mark_votes` — votos individuais usados para calcular a reputação
+  - `user_configs` — configurações de fontes por usuário
+
+- **Autenticação** — registre-se na primeira abertura da interface web. A sessão usa cookie HTTP-only assinado; defina `AUTH_SECRET` no `.env` (na ausência, a senha do MongoDB é usada como fallback).
   - `~/.config/animes-tui/` — configuração de fontes
   - `~/.cache/animes-tui/` — cache de imagens e vídeos
 
